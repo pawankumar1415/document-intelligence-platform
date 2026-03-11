@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from zipfile import BadZipFile
 
 from docx import Document
 from fastapi import UploadFile
@@ -28,7 +29,10 @@ class DocumentParser:
         return self._build_document(filename=filename, file_type="txt", title=Path(filename).stem, text=text, sections=sections)
 
     def _parse_docx(self, filename: str, raw_bytes: bytes) -> ParsedDocument:
-        document = Document(BytesIO(raw_bytes))
+        try:
+            document = Document(BytesIO(raw_bytes))
+        except BadZipFile as exc:
+            raise ValueError("Uploaded .docx file is invalid or corrupted.") from exc
 
         sections: list[ParsedSection] = []
         full_paragraphs: list[str] = []

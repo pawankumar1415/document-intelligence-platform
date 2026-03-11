@@ -22,6 +22,8 @@ class ParsedDocument(BaseModel):
 
 class ParseResponse(BaseModel):
     document: ParsedDocument
+    project_id: int | None = None
+    document_id: int | None = None
 
 
 class DocumentInput(BaseModel):
@@ -35,6 +37,7 @@ class GenerateSowRequest(BaseModel):
     project_name: str = Field(..., min_length=1)
     source_document: DocumentInput
     assumptions: list[str] = Field(default_factory=list)
+    project_id: int | None = None
 
 
 class GeneratePptxRequest(BaseModel):
@@ -42,6 +45,7 @@ class GeneratePptxRequest(BaseModel):
     subtitle: str | None = None
     source_document: DocumentInput
     max_content_slides: int = Field(default=4, ge=2, le=8)
+    project_id: int | None = None
 
 
 class GeneratedSection(BaseModel):
@@ -61,5 +65,50 @@ class GenerateResult(BaseModel):
     artifact_name: str
     download_url: str
     summary: str
+    artifact_id: int | None = None
+    project_id: int | None = None
     sections: list[GeneratedSection] = Field(default_factory=list)
     slides: list[GeneratedSlide] = Field(default_factory=list)
+
+
+class AuthRegisterRequest(BaseModel):
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=8)
+
+
+class AuthLoginRequest(BaseModel):
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=1)
+
+
+class AuthUserProfile(BaseModel):
+    id: int
+    email: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in_seconds: int
+    user: AuthUserProfile
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+
+
+class ProjectResponse(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    updated_at: str
+
+
+class ArtifactRecord(BaseModel):
+    id: int
+    project_id: int
+    artifact_type: Literal["sow", "pptx"]
+    artifact_name: str
+    download_url: str
+    summary: str
+    created_at: str
