@@ -6,7 +6,7 @@ import { useAppState } from "../context/AppStateContext";
 import { generatePptx, generateSow } from "../services/api";
 
 const GeneratePage = () => {
-  const { parsedDocument, addOutput } = useAppState();
+  const { parsedDocument, addOutput, projectId, token, llmProvider } = useAppState();
 
   const [clientName, setClientName] = useState("BSBI Consulting");
   const [projectName, setProjectName] = useState("Document Intelligence Discovery");
@@ -48,11 +48,13 @@ const GeneratePage = () => {
           text: parsedDocument.text,
           sections: parsedDocument.sections,
         },
+        project_id: projectId ?? undefined,
+        llm_provider: llmProvider,
         assumptions: assumptions
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean),
-      });
+      }, { token });
       addOutput(response);
       setMessage("SOW draft generated successfully.");
     } catch (requestError) {
@@ -76,8 +78,10 @@ const GeneratePage = () => {
           text: parsedDocument.text,
           sections: parsedDocument.sections,
         },
+        project_id: projectId ?? undefined,
+        llm_provider: llmProvider,
         max_content_slides: maxSlides,
-      });
+      }, { token });
       addOutput(response);
       setMessage("Presentation draft generated successfully.");
     } catch (requestError) {
@@ -92,7 +96,10 @@ const GeneratePage = () => {
     <section className="page">
       <div className="section-header">
         <h1>Generate Deliverables</h1>
-        <p>Use the parsed content to create draft SOW and PPT outputs.</p>
+        <p>
+          Use the parsed content to create draft SOW and PPT outputs. Active provider:{" "}
+          <strong>{llmProvider}</strong>
+        </p>
       </div>
 
       {message && (

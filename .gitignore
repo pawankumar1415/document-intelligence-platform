@@ -60,6 +60,10 @@ target/
 # VS Code
 .vscode/
 
+# Secrets
+.env
+
 # Files Ignored by dev
-backend/data
-backend/output
+backend/data/
+backend/output/
+Sentra Knowledge Base/

@@ -1,10 +1,22 @@
 import { Download, FileStack } from "lucide-react";
+import { useState } from "react";
 
 import { useAppState } from "../context/AppStateContext";
-import { downloadArtifactUrl } from "../services/api";
+import { downloadArtifact } from "../services/api";
 
 const OutputsPage = () => {
-  const { outputs } = useAppState();
+  const { outputs, token } = useAppState();
+  const [error, setError] = useState<string | null>(null);
+
+  const handleDownload = async (downloadUrl: string, artifactName: string) => {
+    setError(null);
+    try {
+      await downloadArtifact(downloadUrl, artifactName, { token });
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : "Download failed.";
+      setError(message);
+    }
+  };
 
   return (
     <section className="page">
@@ -29,16 +41,20 @@ const OutputsPage = () => {
               <p className="meta-line">
                 Created: {new Date(artifact.created_at).toLocaleString()}
               </p>
-              <a
+              <button
                 className="btn-primary"
-                href={downloadArtifactUrl(artifact.download_url)}
-                target="_blank"
-                rel="noreferrer"
+                type="button"
+                onClick={() => handleDownload(artifact.download_url, artifact.artifact_name)}
               >
                 <Download size={16} /> Download
-              </a>
+              </button>
             </article>
           ))}
+        </div>
+      )}
+      {error && (
+        <div className="message error">
+          <span>{error}</span>
         </div>
       )}
     </section>

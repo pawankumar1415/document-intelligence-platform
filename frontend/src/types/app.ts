@@ -15,6 +15,8 @@ export type ParsedDocument = {
 
 export type ParseResponse = {
   document: ParsedDocument;
+  project_id?: number;
+  document_id?: number;
 };
 
 export type DocumentInput = {
@@ -28,6 +30,8 @@ export type GenerateSowRequest = {
   project_name: string;
   source_document: DocumentInput;
   assumptions: string[];
+  project_id?: number;
+  llm_provider: LLMProvider;
 };
 
 export type GeneratePptxRequest = {
@@ -35,7 +39,11 @@ export type GeneratePptxRequest = {
   subtitle?: string;
   source_document: DocumentInput;
   max_content_slides: number;
+  project_id?: number;
+  llm_provider: LLMProvider;
 };
+
+export type LLMProvider = "openai" | "groq" | "azure_openai";
 
 export type GeneratedSection = {
   title: string;
@@ -54,6 +62,8 @@ export type GenerateResult = {
   artifact_name: string;
   download_url: string;
   summary: string;
+  artifact_id?: number;
+  project_id?: number;
   sections: GeneratedSection[];
   slides: GeneratedSlide[];
 };
@@ -61,4 +71,16 @@ export type GenerateResult = {
 export type OutputArtifact = GenerateResult & {
   id: string;
   created_at: string;
+};
+
+export type AuthUser = {
+  id: number;
+  email: string;
+};
+
+export type AuthResponse = {
+  access_token: string;
+  token_type: "bearer";
+  expires_in_seconds: number;
+  user: AuthUser;
 };

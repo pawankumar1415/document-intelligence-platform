@@ -1,6 +1,8 @@
 import { Menu, X } from "lucide-react";
 import { useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
+
+import { useAppState } from "../context/AppStateContext";
 
 const links = [
   { to: "/dashboard", label: "Dashboard" },
@@ -14,6 +16,13 @@ const navClassName = ({ isActive }: { isActive: boolean }) =>
 
 const Navbar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const navigate = useNavigate();
+  const { clearSession, llmProvider, setLlmProvider, user } = useAppState();
+
+  const handleLogout = () => {
+    clearSession();
+    navigate("/login", { replace: true });
+  };
 
   return (
     <header className="top-nav">
@@ -33,6 +42,23 @@ const Navbar = () => {
             </NavLink>
           ))}
         </nav>
+
+        <div className="top-nav-controls">
+          <select
+            className="provider-select"
+            value={llmProvider}
+            onChange={(event) => setLlmProvider(event.target.value as "openai" | "groq" | "azure_openai")}
+            title="LLM Provider"
+          >
+            <option value="openai">OpenAI</option>
+            <option value="groq">Groq</option>
+            <option value="azure_openai">Azure OpenAI</option>
+          </select>
+          <span className="user-chip">{user?.email}</span>
+          <button className="logout-btn" type="button" onClick={handleLogout}>
+            Logout
+          </button>
+        </div>
 
         <button
           className="mobile-toggle"
@@ -56,6 +82,21 @@ const Navbar = () => {
               {link.label}
             </NavLink>
           ))}
+          <label className="mobile-provider-label">
+            LLM Provider
+            <select
+              className="provider-select"
+              value={llmProvider}
+              onChange={(event) => setLlmProvider(event.target.value as "openai" | "groq" | "azure_openai")}
+            >
+              <option value="openai">OpenAI</option>
+              <option value="groq">Groq</option>
+              <option value="azure_openai">Azure OpenAI</option>
+            </select>
+          </label>
+          <button className="logout-btn" type="button" onClick={handleLogout}>
+            Logout
+          </button>
         </nav>
       )}
     </header>

@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
 
 const DashboardPage = () => {
-  const { parsedDocument, outputs } = useAppState();
+  const { parsedDocument, outputs, llmProvider } = useAppState();
 
   const sowCount = outputs.filter((item) => item.artifact_type === "sow").length;
   const pptCount = outputs.filter((item) => item.artifact_type === "pptx").length;
@@ -17,6 +17,9 @@ const DashboardPage = () => {
         <p>
           Upload a `.txt` or `.docx`, extract structure, generate a draft SOW or PPT, and
           download stakeholder-ready files.
+        </p>
+        <p style={{ marginTop: "0.35rem", fontSize: "0.86rem" }}>
+          Current LLM Provider: <strong>{llmProvider}</strong>
         </p>
         <div className="hero-actions">
           <Link className="btn-primary" to="/upload">

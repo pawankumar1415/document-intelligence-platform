@@ -5,8 +5,9 @@ import { useAppState } from "../context/AppStateContext";
 import { parseDocument } from "../services/api";
 
 const UploadPage = () => {
-  const { parsedDocument, setParsedDocument } = useAppState();
+  const { parsedDocument, projectId, setParsedDocument, setProjectId, token, llmProvider } = useAppState();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [projectName, setProjectName] = useState("BSBI Discovery Project");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,8 +21,16 @@ const UploadPage = () => {
     setError(null);
 
     try {
-      const response = await parseDocument(selectedFile);
+      const response = await parseDocument(selectedFile, {
+        token,
+        projectName,
+        llmProvider,
+        projectId: projectId ?? undefined,
+      });
       setParsedDocument(response.document);
+      if (typeof response.project_id === "number") {
+        setProjectId(response.project_id);
+      }
     } catch (requestError) {
       const message =
         requestError instanceof Error ? requestError.message : "Failed to parse document.";
@@ -39,6 +48,10 @@ const UploadPage = () => {
       </div>
 
       <div className="panel">
+        <label>
+          Project name
+          <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+        </label>
         <label className="file-drop">
           <UploadCloud size={24} />
           <div>
