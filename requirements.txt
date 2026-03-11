@@ -4,3 +4,7 @@ python-docx
 python-pptx
 python-multipart
 pytest
+python-dotenv
+openai
+groq
+psycopg[binary]
