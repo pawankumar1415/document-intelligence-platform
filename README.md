@@ -1,20 +1,79 @@
 # BSBI Document Intelligence Platform
 
-Thin-slice implementation for:
+BSBI Document Intelligence is a full-stack application that converts uploaded documents into business-ready outputs using retrieval + LLM generation.
 
-- `.docx` / `.txt` parsing
-- SOW draft generation (`.docx`)
-- PPT draft generation (`.pptx`)
-- BSBI-branded frontend flow (`dashboard -> upload -> generate -> outputs`)
+Current outputs:
+- Branded `SOW` (`.docx`)
+- Branded `Presentation` (`.pptx`)
 
-## Backend Run
+Supported source files in current slice:
+- `.docx`
+- `.txt`
+
+## Core Capabilities
+
+- Auth-first workflow (app always starts at login)
+- Project-scoped document parsing and persistence
+- PostgreSQL `pgvector` chunk indexing and similarity retrieval
+- Switchable LLM provider per session:
+  - `OpenAI`
+  - `Groq`
+  - `Azure OpenAI`
+- Branded output generation (BSBI logo/styling applied in generated files)
+
+## Architecture
+
+- **Frontend**: React + Vite + TypeScript
+- **Backend**: FastAPI (Python)
+- **Relational persistence**: SQLite (`backend/data/app.db`) for users/projects/artifacts
+- **Vector store**: PostgreSQL with `pgvector` extension
+- **Generation pipeline**:
+  1. Parse source document
+  2. Chunk + embed + index vectors
+  3. Retrieve relevant chunks
+  4. Generate draft via selected LLM provider
+  5. Render branded `.docx` / `.pptx`
+
+## Repository Structure
+
+```text
+backend/                 FastAPI app and generation pipeline
+frontend/                React UI
+Documentation/           Plans, tech spec, and work log
+logo/                    Brand assets
+```
+
+## Prerequisites
+
+- Python `3.12+` (project currently tested in local `venv`)
+- Node.js `20+` (you are on `25.8.0`, which is fine)
+- PostgreSQL with `pgvector` enabled
+
+## Configuration
+
+Create and populate `.env` in project root (starter template is included):
+
+- `PGVECTOR_DSN`
+- `OPENAI_API_KEY`
+- `GROQ_API_KEY`
+- `AZURE_OPENAI_API_KEY`
+- `AZURE_OPENAI_ENDPOINT`
+- model/deployment names for each provider
+
+Important: `.env` is git-ignored and should never be committed.
+
+## Running the Project
+
+### Option A: Split dev mode (recommended for UI development)
+
+Terminal 1:
 
 ```bash
 pip install -r requirements.txt
 uvicorn backend.app.main:app --reload
 ```
 
-## Frontend Run
+Terminal 2:
 
 ```bash
 cd frontend
@@ -22,15 +81,9 @@ npm install
 npm run dev
 ```
 
-Optional API base URL:
+Open `http://localhost:5173`.
 
-```bash
-VITE_API_BASE_URL=http://localhost:8000
-```
-
-By default, frontend now calls relative `/api/*` paths and Vite proxies them to backend in dev mode.
-
-## Full Stack (Single Server)
+### Option B: Single-server mode (backend serves built frontend)
 
 ```bash
 cd frontend
@@ -39,29 +92,41 @@ cd ..
 uvicorn backend.app.main:app --reload
 ```
 
-Then open `http://localhost:8000` and FastAPI will serve `frontend/dist` plus API routes.
+Open `http://localhost:8000`.
 
-## API Endpoints
+## API Surface
 
+Health:
 - `GET /health`
+- `GET /api/v1/vector/status`
+
+Auth:
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
-- `POST /api/v1/projects` (auth required)
-- `GET /api/v1/projects` (auth required)
+
+Projects (auth required):
+- `POST /api/v1/projects`
+- `GET /api/v1/projects`
+
+Document and generation (auth required):
 - `POST /api/v1/parse`
 - `POST /api/v1/generate/sow`
 - `POST /api/v1/generate/pptx`
-- `GET /api/v1/artifacts` (auth required)
+
+Artifacts (auth required):
+- `GET /api/v1/artifacts`
 - `GET /api/v1/artifacts/{artifact_name}`
 
-Generated files are written under `backend/output/`.
+Generated files are stored in `backend/output/`.
 
-## Auth And Persistence Notes
+## Notes
 
-- Register/login returns a bearer token.
-- If bearer token is sent in `Authorization`, parse and generate responses are persisted into SQLite (`backend/data/app.db`) with project and artifact records.
-- Without bearer token, parse/generate still work but run as non-persistent calls for backward compatibility with existing UI flow.
+- Invalid or corrupted `.docx` files return `400` validation errors (not server crashes).
+- If vector indexing is misconfigured (missing DSN/keys), parse returns a clear error from backend.
+- Provider switching is controlled from frontend and passed to backend on parse/generate requests.
 
-## Parse Error Handling
+## Documentation
 
-- Invalid or corrupted `.docx` uploads now return `400` with a validation message instead of `500`.
+- [Product Plan](./Documentation/DOCUMENT_INTELLIGENCE_PLATFORM_PLAN.md)
+- [Technical Spec](./Documentation/DEVELOPMENT_TECH_SPEC.md)
+- [Work Log](./Documentation/WORK_LOG.md)
