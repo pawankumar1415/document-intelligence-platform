@@ -38,6 +38,7 @@ class GenerateSowRequest(BaseModel):
     source_document: DocumentInput
     assumptions: list[str] = Field(default_factory=list)
     project_id: int | None = None
+    llm_provider: Literal["openai", "groq", "azure_openai"] = "openai"
 
 
 class GeneratePptxRequest(BaseModel):
@@ -46,6 +47,7 @@ class GeneratePptxRequest(BaseModel):
     source_document: DocumentInput
     max_content_slides: int = Field(default=4, ge=2, le=8)
     project_id: int | None = None
+    llm_provider: Literal["openai", "groq", "azure_openai"] = "openai"
 
 
 class GeneratedSection(BaseModel):
@@ -112,3 +114,8 @@ class ArtifactRecord(BaseModel):
     download_url: str
     summary: str
     created_at: str
+
+
+class VectorStatusResponse(BaseModel):
+    configured: bool
+    embedding_dim: int

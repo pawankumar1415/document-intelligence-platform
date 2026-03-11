@@ -273,3 +273,18 @@ def list_artifacts(user_id: int, project_id: int | None = None) -> list[dict[str
             ).fetchall()
 
     return [dict(row) for row in rows]
+
+
+def get_artifact_by_name(user_id: int, artifact_name: str) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT id, project_id, artifact_type, artifact_name, download_url, summary, created_at, file_path
+            FROM artifacts
+            WHERE user_id = ? AND artifact_name = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id, artifact_name),
+        ).fetchone()
+    return dict(row) if row else None

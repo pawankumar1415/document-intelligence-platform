@@ -15,19 +15,26 @@ from backend.app.models.schemas import (
     ParseResponse,
     ProjectCreateRequest,
     ProjectResponse,
+    VectorStatusResponse,
 )
 from backend.app.services import persistence
 from backend.app.services.auth_service import (
     create_user,
     create_user_session,
-    get_user_from_bearer_token,
     require_authenticated_user,
     verify_credentials,
 )
+from backend.app.services.chunking import chunk_text
 from backend.app.services.file_utils import OUTPUT_DIR
 from backend.app.services.document_parser import DocumentParser
+from backend.app.services.llm_provider import embed_texts
 from backend.app.services.ppt_generator import PptGenerator
 from backend.app.services.sow_generator import SowGenerator
+from backend.app.services.vector_store import (
+    query_similar_chunks,
+    upsert_chunks,
+    vector_store_status,
+)
 
 
 router = APIRouter()
@@ -37,10 +44,6 @@ sow_generator = SowGenerator()
 ppt_generator = PptGenerator()
 
 
-def get_optional_user(authorization: str | None = Header(default=None)) -> dict | None:
-    return get_user_from_bearer_token(authorization)
-
-
 def get_required_user(authorization: str | None = Header(default=None)) -> dict:
     return require_authenticated_user(authorization)
 
@@ -48,6 +51,12 @@ def get_required_user(authorization: str | None = Header(default=None)) -> dict:
 @router.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/api/v1/vector/status", response_model=VectorStatusResponse)
+def get_vector_status() -> VectorStatusResponse:
+    status = vector_store_status()
+    return VectorStatusResponse(**status)
 
 
 @router.post("/api/v1/auth/register", response_model=AuthResponse)
@@ -112,17 +121,13 @@ async def parse_document(
     file: UploadFile = File(...),
     project_id: int | None = Form(default=None),
     project_name: str | None = Form(default=None),
-    user: dict | None = Depends(get_optional_user),
+    llm_provider: str = Form(default="openai"),
+    user: dict = Depends(get_required_user),
 ) -> ParseResponse:
     try:
         parsed_document = await document_parser.parse_upload(file)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    response = ParseResponse(document=parsed_document)
-
-    if not user:
-        return response
 
     user_id = int(user["id"])
     resolved_project_id = project_id
@@ -141,21 +146,35 @@ async def parse_document(
         project_id=int(resolved_project_id),
         document_payload=parsed_document.model_dump(),
     )
-    response.project_id = int(resolved_project_id)
-    response.document_id = int(document_id)
-    return response
+
+    chunks = chunk_text(parsed_document.text)
+    if not chunks:
+        chunks = [parsed_document.text]
+    try:
+        embeddings = embed_texts(llm_provider, chunks)
+        upsert_chunks(
+            user_id=user_id,
+            project_id=int(resolved_project_id),
+            source_id=f"document:{document_id}",
+            provider=llm_provider,
+            chunks=chunks,
+            embeddings=embeddings,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Vector indexing failed: {exc}") from exc
+
+    return ParseResponse(
+        document=parsed_document,
+        project_id=int(resolved_project_id),
+        document_id=int(document_id),
+    )
 
 
 @router.post("/api/v1/generate/sow", response_model=GenerateResult)
 def generate_sow(
     request: GenerateSowRequest,
-    user: dict | None = Depends(get_optional_user),
+    user: dict = Depends(get_required_user),
 ) -> GenerateResult:
-    result = sow_generator.generate(request)
-
-    if not user:
-        return result
-
     user_id = int(user["id"])
     resolved_project_id = request.project_id
     if resolved_project_id is not None:
@@ -166,6 +185,20 @@ def generate_sow(
         project = persistence.create_project(user_id=user_id, name=request.project_name)
         resolved_project_id = int(project["id"])
 
+    retrieval_context: list[str] = []
+    try:
+        query_embedding = embed_texts(request.llm_provider, [request.source_document.text[:1500]])[0]
+        matches = query_similar_chunks(
+            user_id=user_id,
+            project_id=int(resolved_project_id),
+            query_embedding=query_embedding,
+            limit=5,
+        )
+        retrieval_context = [match.content for match in matches]
+    except Exception:
+        retrieval_context = []
+
+    result = sow_generator.generate(request, retrieval_context=retrieval_context)
     artifact_id = persistence.save_artifact(
         user_id=user_id,
         project_id=int(resolved_project_id),
@@ -179,13 +212,8 @@ def generate_sow(
 @router.post("/api/v1/generate/pptx", response_model=GenerateResult)
 def generate_pptx(
     request: GeneratePptxRequest,
-    user: dict | None = Depends(get_optional_user),
+    user: dict = Depends(get_required_user),
 ) -> GenerateResult:
-    result = ppt_generator.generate(request)
-
-    if not user:
-        return result
-
     user_id = int(user["id"])
     resolved_project_id = request.project_id
     if resolved_project_id is not None:
@@ -196,6 +224,20 @@ def generate_pptx(
         project = persistence.create_project(user_id=user_id, name=request.deck_title)
         resolved_project_id = int(project["id"])
 
+    retrieval_context: list[str] = []
+    try:
+        query_embedding = embed_texts(request.llm_provider, [request.source_document.text[:1500]])[0]
+        matches = query_similar_chunks(
+            user_id=user_id,
+            project_id=int(resolved_project_id),
+            query_embedding=query_embedding,
+            limit=5,
+        )
+        retrieval_context = [match.content for match in matches]
+    except Exception:
+        retrieval_context = []
+
+    result = ppt_generator.generate(request, retrieval_context=retrieval_context)
     artifact_id = persistence.save_artifact(
         user_id=user_id,
         project_id=int(resolved_project_id),
@@ -221,7 +263,14 @@ def list_artifacts(
 
 
 @router.get("/api/v1/artifacts/{artifact_name}")
-def download_artifact(artifact_name: str) -> FileResponse:
+def download_artifact(
+    artifact_name: str,
+    user: dict = Depends(get_required_user),
+) -> FileResponse:
+    artifact_record = persistence.get_artifact_by_name(int(user["id"]), artifact_name)
+    if not artifact_record:
+        raise HTTPException(status_code=404, detail="Artifact not found for this user.")
+
     safe_name = Path(artifact_name).name
     artifact_path = OUTPUT_DIR / safe_name
 

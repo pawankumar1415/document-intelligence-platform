@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from backend.app.models.schemas import (
     DocumentInput,
     GeneratePptxRequest,
@@ -35,6 +37,12 @@ def test_txt_parser_creates_sections() -> None:
     assert parsed.file_type == "txt"
     assert len(parsed.sections) == 2
     assert parsed.sections[0].heading == "Section 1"
+
+
+def test_docx_parser_rejects_invalid_docx() -> None:
+    parser = DocumentParser()
+    with pytest.raises(ValueError, match="invalid or corrupted"):
+        parser._parse_docx("broken.docx", b"this-is-not-a-valid-docx")
 
 
 def test_sow_generator_writes_docx() -> None:

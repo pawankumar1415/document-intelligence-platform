@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 
 from backend.app.api.routes import router
 from backend.app.services.persistence import init_db
+from backend.app.services.vector_store import init_vector_store
 
 
 app = FastAPI(
@@ -31,6 +32,11 @@ app.include_router(router)
 @app.on_event("startup")
 def initialize_app() -> None:
     init_db()
+    try:
+        init_vector_store()
+    except Exception:
+        # Vector store is optional at startup; routes surface explicit errors if used without config.
+        pass
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
