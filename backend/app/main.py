@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from backend.app.api.routes import router
 
@@ -22,3 +25,25 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+
+
+if FRONTEND_DIST.exists():
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_frontend(full_path: str) -> FileResponse:
+        if (
+            full_path == "health"
+            or full_path.startswith("api/")
+            or full_path.startswith("docs")
+            or full_path.startswith("redoc")
+            or full_path.startswith("openapi.json")
+        ):
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        requested_path = (FRONTEND_DIST / full_path).resolve()
+        if requested_path.is_file() and requested_path.is_relative_to(FRONTEND_DIST):
+            return FileResponse(requested_path)
+
+        return FileResponse(FRONTEND_DIST / "index.html")
