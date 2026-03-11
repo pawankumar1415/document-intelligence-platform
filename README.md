@@ -44,9 +44,24 @@ Then open `http://localhost:8000` and FastAPI will serve `frontend/dist` plus AP
 ## API Endpoints
 
 - `GET /health`
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/projects` (auth required)
+- `GET /api/v1/projects` (auth required)
 - `POST /api/v1/parse`
 - `POST /api/v1/generate/sow`
 - `POST /api/v1/generate/pptx`
+- `GET /api/v1/artifacts` (auth required)
 - `GET /api/v1/artifacts/{artifact_name}`
 
 Generated files are written under `backend/output/`.
+
+## Auth And Persistence Notes
+
+- Register/login returns a bearer token.
+- If bearer token is sent in `Authorization`, parse and generate responses are persisted into SQLite (`backend/data/app.db`) with project and artifact records.
+- Without bearer token, parse/generate still work but run as non-persistent calls for backward compatibility with existing UI flow.
+
+## Parse Error Handling
+
+- Invalid or corrupted `.docx` uploads now return `400` with a validation message instead of `500`.
