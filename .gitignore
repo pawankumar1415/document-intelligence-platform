@@ -61,5 +61,5 @@ target/
 .vscode/
 
 # Files Ignored by dev
-backend\data
-backend\output
+backend/data
+backend/output
