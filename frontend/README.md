@@ -17,7 +17,7 @@ Set API base URL if needed:
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-Default is `http://localhost:8000`.
+Default is same-origin (`""`). In dev mode, Vite proxies `/api` and `/health` to `http://localhost:8000`.
 
 ## Routes
 
