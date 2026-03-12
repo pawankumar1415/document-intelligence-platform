@@ -19,9 +19,9 @@
   max-width: 1180px;
   margin: 0 auto;
   padding: 0.8rem 1rem;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(300px, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
 }
 
@@ -30,6 +30,7 @@
   align-items: center;
   gap: 0.85rem;
   min-width: 0;
+  overflow: hidden;
 }
 
 .brand-logo {
@@ -50,6 +51,9 @@
   font-weight: 700;
   color: var(--ink-strong);
   line-height: 1.1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .brand-subtitle {
@@ -57,17 +61,22 @@
   color: var(--ink-muted);
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .desktop-nav {
   display: flex;
   gap: 0.5rem;
+  justify-self: center;
 }
 
 .top-nav-controls {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  justify-self: end;
 }
 
 .provider-select {
@@ -151,6 +160,56 @@
   max-width: 1180px;
   margin: 0 auto;
   padding: 1.4rem 1rem 2.4rem;
+}
+
+.model-control-bar {
+  margin-bottom: 1rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.model-control-heading h3 {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.98rem;
+}
+
+.model-control-heading p {
+  margin-top: 0.25rem;
+  color: var(--ink-muted);
+  font-size: 0.86rem;
+}
+
+.model-control-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.model-control-grid label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+}
+
+.model-control-grid .provider-select {
+  width: 100%;
+}
+
+.model-control-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.model-control-note {
+  font-size: 0.82rem;
+  color: var(--ink-muted);
 }
 
 .page {
@@ -592,6 +651,10 @@
 }
 
 @media (max-width: 960px) {
+  .top-nav-inner {
+    grid-template-columns: 1fr auto;
+  }
+
   .desktop-nav {
     display: none;
   }
@@ -614,8 +677,15 @@
 
   .stats-grid,
   .summary-grid,
-  .generate-grid {
+  .generate-grid,
+  .model-control-grid {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 1080px) {
+  .user-chip {
+    display: none;
   }
 }
 
@@ -630,7 +700,8 @@
 
   .stats-grid,
   .summary-grid,
-  .generate-grid {
+  .generate-grid,
+  .model-control-grid {
     grid-template-columns: 1fr;
   }
 

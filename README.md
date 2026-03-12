@@ -239,6 +239,7 @@ uvicorn backend.app.main:app --reload
 ### Generation And Model Discovery
 - `GET /api/v1/providers/models`
 - `GET /api/v1/vector/status`
+- `POST /api/v1/embedding/config`
 - `POST /api/v1/generate/sow`
 - `POST /api/v1/generate/pptx`
 

@@ -4,6 +4,7 @@ import type {
   GenerateResult,
   GenerateSowRequest,
   LLMProvider,
+  EmbeddingCatalog,
   ParseResponse,
   ProviderCatalogResponse,
 } from "../types/app";
@@ -78,6 +79,20 @@ export const getProviderCatalog = async (options: AuthOptions): Promise<Provider
     headers: {
       ...authHeaders(options.token),
     },
+  });
+};
+
+export const updateEmbeddingConfig = async (
+  payload: { backend: string; model_id: string },
+  options: AuthOptions,
+): Promise<EmbeddingCatalog> => {
+  return requestJson<EmbeddingCatalog>(`${API_BASE_URL}/api/v1/embedding/config`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(options.token),
+    },
+    body: JSON.stringify(payload),
   });
 };
 

@@ -161,3 +161,8 @@ class EmbeddingCatalog(BaseModel):
 class ProviderCatalogResponse(BaseModel):
     providers: list[ProviderCatalogEntry] = Field(default_factory=list)
     embedding: EmbeddingCatalog
+
+
+class EmbeddingConfigUpdateRequest(BaseModel):
+    backend: str = Field(..., min_length=1)
+    model_id: str = Field(..., min_length=1)

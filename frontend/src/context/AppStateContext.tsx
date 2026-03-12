@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { getProviderCatalog } from "../services/api";
+import { getProviderCatalog, updateEmbeddingConfig } from "../services/api";
 import type {
   AuthUser,
   EmbeddingCatalog,
@@ -22,12 +22,15 @@ type AppStateContextValue = {
   providerCatalogLoading: boolean;
   providerCatalogError: string | null;
   embeddingCatalog: EmbeddingCatalog | null;
+  embeddingUpdateLoading: boolean;
+  embeddingUpdateError: string | null;
   setParsedDocument: (document: ParsedDocument | null) => void;
   setProjectId: (projectId: number | null) => void;
   setSession: (token: string, user: AuthUser) => void;
   clearSession: () => void;
   setLlmProvider: (provider: LLMProvider) => void;
   setLlmModel: (provider: LLMProvider, model: string) => void;
+  applyEmbeddingConfig: (backend: string, modelId: string) => Promise<void>;
   addOutput: (artifact: Omit<OutputArtifact, "id" | "created_at">) => void;
   clearAll: () => void;
 };
@@ -47,6 +50,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   const [providerCatalogLoading, setProviderCatalogLoading] = useState(false);
   const [providerCatalogError, setProviderCatalogError] = useState<string | null>(null);
   const [embeddingCatalog, setEmbeddingCatalog] = useState<EmbeddingCatalog | null>(null);
+  const [embeddingUpdateLoading, setEmbeddingUpdateLoading] = useState(false);
+  const [embeddingUpdateError, setEmbeddingUpdateError] = useState<string | null>(null);
   const [llmProvider, setLlmProvider] = useState<LLMProvider>(() => {
     const raw = localStorage.getItem("llm_provider");
     if (raw === "openai" || raw === "groq" || raw === "azure_openai") {
@@ -66,6 +71,31 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     }
   });
 
+  const refreshCatalog = async (sessionToken: string): Promise<void> => {
+    setProviderCatalogLoading(true);
+    setProviderCatalogError(null);
+    const response = await getProviderCatalog({ token: sessionToken });
+    const enabledProviders = response.providers.filter((entry) => entry.enabled);
+    setProviderCatalog(enabledProviders);
+    setEmbeddingCatalog(response.embedding);
+    if (enabledProviders.length > 0 && !enabledProviders.some((entry) => entry.provider === llmProvider)) {
+      const fallbackProvider = enabledProviders[0].provider;
+      setLlmProvider(fallbackProvider);
+      localStorage.setItem("llm_provider", fallbackProvider);
+    }
+    setSelectedModels((current) => {
+      const next = { ...current };
+      for (const entry of enabledProviders) {
+        if (!next[entry.provider]) {
+          next[entry.provider] = entry.default_model || entry.models[0]?.id || "";
+        }
+      }
+      localStorage.setItem("llm_models", JSON.stringify(next));
+      return next;
+    });
+    setProviderCatalogLoading(false);
+  };
+
   useEffect(() => {
     if (!token) {
       setProviderCatalog([]);
@@ -75,47 +105,16 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     }
 
     let isCancelled = false;
-    setProviderCatalogLoading(true);
-    setProviderCatalogError(null);
-
-    getProviderCatalog({ token })
-      .then((response) => {
-        if (isCancelled) {
-          return;
-        }
-        const enabledProviders = response.providers.filter((entry) => entry.enabled);
-        setProviderCatalog(enabledProviders);
-        setEmbeddingCatalog(response.embedding);
-        if (enabledProviders.length > 0 && !enabledProviders.some((entry) => entry.provider === llmProvider)) {
-          const fallbackProvider = enabledProviders[0].provider;
-          setLlmProvider(fallbackProvider);
-          localStorage.setItem("llm_provider", fallbackProvider);
-        }
-        setSelectedModels((current) => {
-          const next = { ...current };
-          for (const entry of enabledProviders) {
-            if (!next[entry.provider]) {
-              next[entry.provider] = entry.default_model || entry.models[0]?.id || "";
-            }
-          }
-          localStorage.setItem("llm_models", JSON.stringify(next));
-          return next;
-        });
-      })
-      .catch((error: unknown) => {
-        if (isCancelled) {
-          return;
-        }
-        const message = error instanceof Error ? error.message : "Could not load provider catalog.";
-        setProviderCatalog([]);
-        setEmbeddingCatalog(null);
-        setProviderCatalogError(message);
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setProviderCatalogLoading(false);
-        }
-      });
+    refreshCatalog(token).catch((error: unknown) => {
+      if (isCancelled) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Could not load provider catalog.";
+      setProviderCatalog([]);
+      setEmbeddingCatalog(null);
+      setProviderCatalogError(message);
+      setProviderCatalogLoading(false);
+    });
 
     return () => {
       isCancelled = true;
@@ -158,6 +157,30 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
+  const applyEmbeddingConfig = async (backend: string, modelId: string) => {
+    if (!token) {
+      throw new Error("You must be logged in to update embedding configuration.");
+    }
+    setEmbeddingUpdateLoading(true);
+    setEmbeddingUpdateError(null);
+    try {
+      await updateEmbeddingConfig(
+        {
+          backend,
+          model_id: modelId,
+        },
+        { token },
+      );
+      await refreshCatalog(token);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update embedding configuration.";
+      setEmbeddingUpdateError(message);
+      throw error;
+    } finally {
+      setEmbeddingUpdateLoading(false);
+    }
+  };
+
   const addOutput = (artifact: Omit<OutputArtifact, "id" | "created_at">) => {
     const now = new Date().toISOString();
     const record: OutputArtifact = {
@@ -194,12 +217,15 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       providerCatalogLoading,
       providerCatalogError,
       embeddingCatalog,
+      embeddingUpdateLoading,
+      embeddingUpdateError,
       setParsedDocument,
       setProjectId,
       setSession,
       clearSession,
       setLlmProvider: updateLlmProvider,
       setLlmModel: updateLlmModel,
+      applyEmbeddingConfig,
       addOutput,
       clearAll,
     }),
@@ -213,6 +239,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       providerCatalog,
       providerCatalogError,
       providerCatalogLoading,
+      embeddingUpdateLoading,
+      embeddingUpdateError,
       token,
       user,
     ],

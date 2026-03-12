@@ -34,13 +34,21 @@ SUPPORTED_EMBEDDING_MODELS: dict[str, dict[str, Any]] = {
     },
 }
 
+SUPPORTED_EMBEDDING_BACKENDS = {"huggingface_local", "ollama"}
+_runtime_embedding_backend: str | None = None
+_runtime_embedding_model_id: str | None = None
+
 
 def configured_embedding_backend() -> str:
+    if _runtime_embedding_backend:
+        return _runtime_embedding_backend
     return env("EMBEDDING_BACKEND", "huggingface_local") or "huggingface_local"
 
 
 def configured_embedding_model_id() -> str:
     backend = configured_embedding_backend()
+    if _runtime_embedding_model_id:
+        return _runtime_embedding_model_id
     if backend == "ollama":
         return env("OLLAMA_EMBED_MODEL", "qwen3-embedding:4b") or "qwen3-embedding:4b"
     return env("EMBEDDING_MODEL_ID", "nomic-ai/nomic-embed-text-v1.5") or "nomic-ai/nomic-embed-text-v1.5"
@@ -48,6 +56,30 @@ def configured_embedding_model_id() -> str:
 
 def configured_ollama_base_url() -> str:
     return env("OLLAMA_BASE_URL", "http://localhost:11434") or "http://localhost:11434"
+
+
+def get_runtime_embedding_override() -> tuple[str | None, str | None]:
+    return (_runtime_embedding_backend, _runtime_embedding_model_id)
+
+
+def set_runtime_embedding_override(backend: str | None, model_id: str | None) -> None:
+    global _runtime_embedding_backend
+    global _runtime_embedding_model_id
+    _runtime_embedding_backend = backend
+    _runtime_embedding_model_id = model_id
+    _ollama_embedding_dimension.cache_clear()
+
+
+def set_runtime_embedding_config(*, backend: str, model_id: str) -> None:
+    normalized_backend = backend.strip()
+    normalized_model = model_id.strip()
+    if normalized_backend not in SUPPORTED_EMBEDDING_BACKENDS:
+        supported = ", ".join(sorted(SUPPORTED_EMBEDDING_BACKENDS))
+        raise RuntimeError(f"Unsupported embedding backend: {normalized_backend}. Supported: {supported}.")
+    if not normalized_model:
+        raise RuntimeError("Embedding model id is required.")
+
+    set_runtime_embedding_override(normalized_backend, normalized_model)
 
 
 def embedding_configuration() -> dict[str, Any]:

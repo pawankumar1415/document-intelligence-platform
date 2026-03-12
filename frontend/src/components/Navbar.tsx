@@ -17,19 +17,7 @@ const navClassName = ({ isActive }: { isActive: boolean }) =>
 const Navbar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
-  const {
-    clearSession,
-    llmModel,
-    llmProvider,
-    providerCatalog,
-    providerCatalogLoading,
-    setLlmModel,
-    setLlmProvider,
-    user,
-  } = useAppState();
-  const providerOptions = providerCatalog.filter((entry) => entry.enabled);
-  const activeProvider = providerOptions.find((entry) => entry.provider === llmProvider);
-  const activeModels = activeProvider?.models ?? [];
+  const { clearSession, user } = useAppState();
 
   const handleLogout = () => {
     clearSession();
@@ -56,34 +44,6 @@ const Navbar = () => {
         </nav>
 
         <div className="top-nav-controls">
-          <select
-            className="provider-select"
-            value={llmProvider}
-            onChange={(event) => setLlmProvider(event.target.value as "openai" | "groq" | "azure_openai")}
-            title="LLM Provider"
-            disabled={providerCatalogLoading || providerOptions.length === 0}
-          >
-            {providerOptions.length === 0 && <option value={llmProvider}>No providers</option>}
-            {providerOptions.map((entry) => (
-              <option key={entry.provider} value={entry.provider}>
-                {entry.display_name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="provider-select model-select"
-            value={llmModel}
-            onChange={(event) => setLlmModel(llmProvider, event.target.value)}
-            title="LLM Model"
-            disabled={providerCatalogLoading || activeModels.length === 0}
-          >
-            {activeModels.length === 0 && <option value={llmModel || ""}>No models</option>}
-            {activeModels.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.label}
-              </option>
-            ))}
-          </select>
           <span className="user-chip">{user?.email}</span>
           <button className="logout-btn" type="button" onClick={handleLogout}>
             Logout
@@ -112,38 +72,7 @@ const Navbar = () => {
               {link.label}
             </NavLink>
           ))}
-          <label className="mobile-provider-label">
-            LLM Provider
-            <select
-              className="provider-select"
-              value={llmProvider}
-              onChange={(event) => setLlmProvider(event.target.value as "openai" | "groq" | "azure_openai")}
-              disabled={providerCatalogLoading || providerOptions.length === 0}
-            >
-              {providerOptions.length === 0 && <option value={llmProvider}>No providers</option>}
-              {providerOptions.map((entry) => (
-                <option key={entry.provider} value={entry.provider}>
-                  {entry.display_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="mobile-provider-label">
-            LLM Model
-            <select
-              className="provider-select model-select"
-              value={llmModel}
-              onChange={(event) => setLlmModel(llmProvider, event.target.value)}
-              disabled={providerCatalogLoading || activeModels.length === 0}
-            >
-              {activeModels.length === 0 && <option value={llmModel || ""}>No models</option>}
-              {activeModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <span className="mobile-provider-label">Model controls are available below the navigation bar.</span>
           <button className="logout-btn" type="button" onClick={handleLogout}>
             Logout
           </button>

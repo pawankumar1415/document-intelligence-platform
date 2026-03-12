@@ -9,6 +9,8 @@ from backend.app.models.schemas import (
     AuthRegisterRequest,
     AuthResponse,
     AuthUserProfile,
+    EmbeddingConfigUpdateRequest,
+    EmbeddingCatalog,
     GeneratePptxRequest,
     GenerateResult,
     GenerateSowRequest,
@@ -26,13 +28,21 @@ from backend.app.services.auth_service import (
     verify_credentials,
 )
 from backend.app.services.chunking import chunk_text
-from backend.app.services.embedding_service import embed_documents, embed_query, embedding_configuration
+from backend.app.services.embedding_service import (
+    embed_documents,
+    embed_query,
+    embedding_configuration,
+    get_runtime_embedding_override,
+    set_runtime_embedding_config,
+    set_runtime_embedding_override,
+)
 from backend.app.services.file_utils import OUTPUT_DIR
 from backend.app.services.document_parser import DocumentParser
 from backend.app.services.ppt_generator import PptGenerator
 from backend.app.services.provider_catalog import get_provider_catalog, resolve_chat_model
 from backend.app.services.sow_generator import SowGenerator
 from backend.app.services.vector_store import (
+    init_vector_store,
     query_similar_chunks,
     upsert_chunks,
     vector_store_status,
@@ -68,6 +78,22 @@ def get_provider_models(user: dict = Depends(get_required_user)) -> ProviderCata
         providers=get_provider_catalog(),
         embedding=embedding_configuration(),
     )
+
+
+@router.post("/api/v1/embedding/config", response_model=EmbeddingCatalog)
+def update_embedding_config(
+    request: EmbeddingConfigUpdateRequest,
+    user: dict = Depends(get_required_user),
+) -> EmbeddingCatalog:
+    del user
+    previous_backend, previous_model = get_runtime_embedding_override()
+    try:
+        set_runtime_embedding_config(backend=request.backend, model_id=request.model_id)
+        init_vector_store()
+    except Exception as exc:
+        set_runtime_embedding_override(previous_backend, previous_model)
+        raise HTTPException(status_code=400, detail=f"Embedding config update failed: {exc}") from exc
+    return EmbeddingCatalog(**embedding_configuration())
 
 
 @router.post("/api/v1/auth/register", response_model=AuthResponse)
