@@ -1,6 +1,9 @@
 import pytest
 
-from backend.app.services.embedding_service import embedding_configuration
+from backend.app.services.embedding_service import (
+    _extract_ollama_embeddings,
+    embedding_configuration,
+)
 from backend.app.services.provider_catalog import _build_azure_catalog, resolve_chat_model
 
 
@@ -13,6 +16,30 @@ def test_embedding_configuration_defaults(monkeypatch: pytest.MonkeyPatch) -> No
     assert config["backend"] == "huggingface_local"
     assert config["model_id"] == "nomic-ai/nomic-embed-text-v1.5"
     assert config["dimension"] == 768
+
+
+def test_embedding_configuration_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMBEDDING_BACKEND", "ollama")
+    monkeypatch.setenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:4b")
+    monkeypatch.setattr(
+        "backend.app.services.embedding_service._ollama_embedding_dimension",
+        lambda _model_id: 2560,
+    )
+
+    config = embedding_configuration()
+
+    assert config["backend"] == "ollama"
+    assert config["model_id"] == "qwen3-embedding:4b"
+    assert config["dimension"] == 2560
+    assert config["supported_models"][0]["id"] == "qwen3-embedding:4b"
+
+
+def test_extract_ollama_embeddings_supports_single_and_batch() -> None:
+    batch_payload = {"embeddings": [[0.1, 0.2], [0.3, 0.4]]}
+    single_payload = {"embedding": [0.5, 0.6]}
+
+    assert _extract_ollama_embeddings(batch_payload) == [[0.1, 0.2], [0.3, 0.4]]
+    assert _extract_ollama_embeddings(single_payload) == [[0.5, 0.6]]
 
 
 def test_resolve_chat_model_rejects_invalid_requested_model(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+import math
 from functools import lru_cache
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from backend.app.config import env
 
@@ -36,30 +40,36 @@ def configured_embedding_backend() -> str:
 
 
 def configured_embedding_model_id() -> str:
+    backend = configured_embedding_backend()
+    if backend == "ollama":
+        return env("OLLAMA_EMBED_MODEL", "qwen3-embedding:4b") or "qwen3-embedding:4b"
     return env("EMBEDDING_MODEL_ID", "nomic-ai/nomic-embed-text-v1.5") or "nomic-ai/nomic-embed-text-v1.5"
 
 
+def configured_ollama_base_url() -> str:
+    return env("OLLAMA_BASE_URL", "http://localhost:11434") or "http://localhost:11434"
+
+
 def embedding_configuration() -> dict[str, Any]:
+    backend = configured_embedding_backend()
     model_id = configured_embedding_model_id()
     metadata = SUPPORTED_EMBEDDING_MODELS.get(model_id, {})
+    dimension = embedding_dimension(model_id)
     return {
-        "backend": configured_embedding_backend(),
+        "backend": backend,
         "model_id": model_id,
-        "dimension": embedding_dimension(model_id),
-        "supported_models": [
-            {
-                "id": supported_model_id,
-                "label": details["label"],
-                "dimension": details["dimension"],
-            }
-            for supported_model_id, details in SUPPORTED_EMBEDDING_MODELS.items()
-        ],
+        "dimension": dimension,
+        "supported_models": _supported_models_for_backend(backend, model_id, dimension),
         "label": metadata.get("label", model_id),
     }
 
 
 def embedding_dimension(model_id: str | None = None) -> int:
+    backend = configured_embedding_backend()
     resolved_model_id = model_id or configured_embedding_model_id()
+    if backend == "ollama":
+        return _ollama_embedding_dimension(resolved_model_id)
+
     metadata = SUPPORTED_EMBEDDING_MODELS.get(resolved_model_id)
     if metadata:
         return int(metadata["dimension"])
@@ -101,15 +111,19 @@ def _prepare_query_text(model_id: str, text: str) -> str:
 
 
 def _encode(model_id: str, texts: list[str]) -> list[list[float]]:
-    if configured_embedding_backend() != "huggingface_local":
-        raise RuntimeError(
-            f"Unsupported embedding backend: {configured_embedding_backend()}. "
-            "Only huggingface_local is implemented in this slice."
-        )
+    backend = configured_embedding_backend()
+    if backend == "huggingface_local":
+        model = _load_sentence_transformer(model_id)
+        vectors = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
+        return [[float(value) for value in vector.tolist()] for vector in vectors]
 
-    model = _load_sentence_transformer(model_id)
-    vectors = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
-    return [[float(value) for value in vector.tolist()] for vector in vectors]
+    if backend == "ollama":
+        return _encode_ollama(model_id, texts)
+
+    raise RuntimeError(
+        f"Unsupported embedding backend: {backend}. "
+        "Supported values are huggingface_local or ollama."
+    )
 
 
 @lru_cache(maxsize=4)
@@ -124,3 +138,71 @@ def _load_sentence_transformer(model_id: str):
     metadata = SUPPORTED_EMBEDDING_MODELS.get(model_id, {})
     trust_remote_code = bool(metadata.get("trust_remote_code", False))
     return SentenceTransformer(model_id, trust_remote_code=trust_remote_code)
+
+
+def _supported_models_for_backend(backend: str, model_id: str, dimension: int) -> list[dict[str, Any]]:
+    if backend == "ollama":
+        return [
+            {
+                "id": model_id,
+                "label": f"Ollama: {model_id}",
+                "dimension": dimension,
+            }
+        ]
+
+    return [
+        {
+            "id": supported_model_id,
+            "label": details["label"],
+            "dimension": details["dimension"],
+        }
+        for supported_model_id, details in SUPPORTED_EMBEDDING_MODELS.items()
+    ]
+
+
+def _encode_ollama(model_id: str, texts: list[str]) -> list[list[float]]:
+    payload = json.dumps({"model": model_id, "input": texts}).encode("utf-8")
+    request = Request(
+        f"{configured_ollama_base_url().rstrip('/')}/api/embed",
+        headers={"Content-Type": "application/json"},
+        data=payload,
+    )
+    try:
+        with urlopen(request, timeout=90) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise RuntimeError(f"Ollama embed request failed with status {exc.code}.") from exc
+    except (URLError, TimeoutError) as exc:
+        raise RuntimeError("Could not connect to Ollama. Ensure `ollama serve` is running.") from exc
+
+    vectors = _extract_ollama_embeddings(response_payload)
+    if len(vectors) != len(texts):
+        raise RuntimeError("Ollama embedding response length mismatch.")
+    return [_normalize_vector(vector) for vector in vectors]
+
+
+@lru_cache(maxsize=8)
+def _ollama_embedding_dimension(model_id: str) -> int:
+    vectors = _encode_ollama(model_id, ["dimension probe"])
+    if not vectors or not vectors[0]:
+        raise RuntimeError("Could not determine embedding dimension from Ollama response.")
+    return len(vectors[0])
+
+
+def _extract_ollama_embeddings(response_payload: dict[str, Any]) -> list[list[float]]:
+    embeddings = response_payload.get("embeddings")
+    if isinstance(embeddings, list) and embeddings and isinstance(embeddings[0], list):
+        return [[float(value) for value in vector] for vector in embeddings]
+
+    single = response_payload.get("embedding")
+    if isinstance(single, list):
+        return [[float(value) for value in single]]
+
+    raise RuntimeError("Ollama embedding response did not include embedding vectors.")
+
+
+def _normalize_vector(vector: list[float]) -> list[float]:
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm <= 0:
+        return vector
+    return [value / norm for value in vector]

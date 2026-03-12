@@ -18,7 +18,7 @@ flowchart LR
     B --> C[Upload docx/txt]
     C --> D[Parse Document]
     D --> E[Chunk Text]
-    E --> F[Local Hugging Face Embeddings]
+    E --> F[Embeddings: Hugging Face or Ollama]
     F --> G[Postgres + pgvector Index]
     G --> H[Select Provider + Model]
     H --> I[Retrieve Relevant Chunks]
@@ -40,7 +40,7 @@ flowchart LR
 - `FastAPI`
 - `SQLite` for users, sessions, projects, documents, artifacts
 - `PostgreSQL + pgvector` for vector search
-- Local `sentence-transformers` embeddings
+- Embeddings: local `sentence-transformers` or local `Ollama /api/embed`
 - Switchable generation providers:
   - `OpenAI`
   - `Groq`
@@ -59,8 +59,9 @@ flowchart LR
 | API | FastAPI | Single backend for auth, parsing, retrieval, generation |
 | App DB | SQLite | Local persistence for users/projects/artifacts |
 | Vector DB | PostgreSQL + pgvector | Local Docker setup recommended on Windows |
-| Embeddings | `nomic-ai/nomic-embed-text-v1.5` | Local Hugging Face baseline |
-| Alternate Embeddings | `BAAI/bge-m3`, `intfloat/multilingual-e5-large-instruct` | Configurable through env |
+| Embeddings | `huggingface_local` or `ollama` | Configurable via `EMBEDDING_BACKEND` |
+| Hugging Face options | `nomic-ai/nomic-embed-text-v1.5`, `BAAI/bge-m3`, `intfloat/multilingual-e5-large-instruct` | Local sentence-transformers path |
+| Ollama option | e.g. `qwen3-embedding:4b` | Uses local Ollama `/api/embed` |
 | Generation Providers | OpenAI, Groq, Azure OpenAI | Frontend-selectable |
 | Azure Model Selection | Deployment names | Azure inference is deployment-based |
 
@@ -68,13 +69,18 @@ flowchart LR
 
 The current backend is designed around open-source local embeddings. Supported embedding model IDs:
 
+Hugging Face (`EMBEDDING_BACKEND=huggingface_local`):
 - `nomic-ai/nomic-embed-text-v1.5` (default)
 - `BAAI/bge-m3`
 - `intfloat/multilingual-e5-large-instruct`
 
+Ollama (`EMBEDDING_BACKEND=ollama`):
+- Use any local embedding model exposed by Ollama, for example `qwen3-embedding:4b`
+
 Default recommendation:
 - Use `nomic-ai/nomic-embed-text-v1.5` for the first local deployment
 - Move to `BAAI/bge-m3` if multilingual retrieval quality becomes the priority
+- Use `qwen3-embedding:4b` if you prefer Ollama-managed local embeddings
 
 Operational note:
 - The first local embedding request downloads the Hugging Face model to the local cache, so initial startup or first parse can be noticeably slower
@@ -116,6 +122,8 @@ Core settings:
 DEFAULT_LLM_PROVIDER=openai
 EMBEDDING_BACKEND=huggingface_local
 EMBEDDING_MODEL_ID=nomic-ai/nomic-embed-text-v1.5
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_EMBED_MODEL=qwen3-embedding:4b
 PGVECTOR_DSN=postgresql://postgres:postgres@localhost:5432/document_intelligence
 OPENAI_ENABLED=true
 OPENAI_API_KEY=...
@@ -167,6 +175,48 @@ uvicorn backend.app.main:app --reload
 Open `http://localhost:8000`.
 
 Both routes are login-first.
+
+## End-To-End Local Test
+
+1. Start Ollama and ensure your embedding model exists:
+
+```bash
+ollama serve
+ollama pull qwen3-embedding:4b
+```
+
+2. Set embedding backend to Ollama in `.env`:
+
+```env
+EMBEDDING_BACKEND=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_EMBED_MODEL=qwen3-embedding:4b
+```
+
+3. Ensure PostgreSQL + pgvector is running and reachable from `PGVECTOR_DSN`.
+4. Start backend:
+
+```bash
+pip install -r requirements.txt
+uvicorn backend.app.main:app --reload
+```
+
+5. Validate API health and embedding setup:
+- `GET /health`
+- `GET /api/v1/vector/status` (should show `embedding_backend: "ollama"`)
+
+6. Start frontend (`npm run dev`) and run the functional flow:
+- Login/register
+- Upload a `.txt` or `.docx` file and parse
+- Generate SOW
+- Generate PPT
+- Download artifacts
+
+7. Optional backend test suite:
+
+```bash
+.\venv\Scripts\python.exe -m pytest -q backend\tests
+```
 
 ## Provider And Model Selection
 
