@@ -31,6 +31,7 @@ type AppStateContextValue = {
   setLlmProvider: (provider: LLMProvider) => void;
   setLlmModel: (provider: LLMProvider, model: string) => void;
   applyEmbeddingConfig: (backend: string, modelId: string) => Promise<void>;
+  refreshProviderCatalog: () => Promise<void>;
   addOutput: (artifact: Omit<OutputArtifact, "id" | "created_at">) => void;
   clearAll: () => void;
 };
@@ -74,26 +75,29 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   const refreshCatalog = async (sessionToken: string): Promise<void> => {
     setProviderCatalogLoading(true);
     setProviderCatalogError(null);
-    const response = await getProviderCatalog({ token: sessionToken });
-    const enabledProviders = response.providers.filter((entry) => entry.enabled);
-    setProviderCatalog(enabledProviders);
-    setEmbeddingCatalog(response.embedding);
-    if (enabledProviders.length > 0 && !enabledProviders.some((entry) => entry.provider === llmProvider)) {
-      const fallbackProvider = enabledProviders[0].provider;
-      setLlmProvider(fallbackProvider);
-      localStorage.setItem("llm_provider", fallbackProvider);
-    }
-    setSelectedModels((current) => {
-      const next = { ...current };
-      for (const entry of enabledProviders) {
-        if (!next[entry.provider]) {
-          next[entry.provider] = entry.default_model || entry.models[0]?.id || "";
-        }
+    try {
+      const response = await getProviderCatalog({ token: sessionToken });
+      const enabledProviders = response.providers.filter((entry) => entry.enabled);
+      setProviderCatalog(enabledProviders);
+      setEmbeddingCatalog(response.embedding);
+      if (enabledProviders.length > 0 && !enabledProviders.some((entry) => entry.provider === llmProvider)) {
+        const fallbackProvider = enabledProviders[0].provider;
+        setLlmProvider(fallbackProvider);
+        localStorage.setItem("llm_provider", fallbackProvider);
       }
-      localStorage.setItem("llm_models", JSON.stringify(next));
-      return next;
-    });
-    setProviderCatalogLoading(false);
+      setSelectedModels((current) => {
+        const next = { ...current };
+        for (const entry of enabledProviders) {
+          if (!next[entry.provider]) {
+            next[entry.provider] = entry.default_model || entry.models[0]?.id || "";
+          }
+        }
+        localStorage.setItem("llm_models", JSON.stringify(next));
+        return next;
+      });
+    } finally {
+      setProviderCatalogLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -181,6 +185,13 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const refreshProviderCatalog = async () => {
+    if (!token) {
+      throw new Error("You must be logged in to refresh provider catalog.");
+    }
+    await refreshCatalog(token);
+  };
+
   const addOutput = (artifact: Omit<OutputArtifact, "id" | "created_at">) => {
     const now = new Date().toISOString();
     const record: OutputArtifact = {
@@ -226,6 +237,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       setLlmProvider: updateLlmProvider,
       setLlmModel: updateLlmModel,
       applyEmbeddingConfig,
+      refreshProviderCatalog,
       addOutput,
       clearAll,
     }),

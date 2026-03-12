@@ -2,7 +2,8 @@ import { AlertCircle, CheckCircle2, Loader2, UploadCloud } from "lucide-react";
 import { useState } from "react";
 
 import { useAppState } from "../context/AppStateContext";
-import { parseDocument } from "../services/api";
+import { ApiError, parseDocument } from "../services/api";
+import type { UseCaseAssessment } from "../types/app";
 
 const UploadPage = () => {
   const { parsedDocument, projectId, setParsedDocument, setProjectId, token, llmProvider } = useAppState();
@@ -10,6 +11,7 @@ const UploadPage = () => {
   const [projectName, setProjectName] = useState("BSBI Discovery Project");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [useCaseAssessment, setUseCaseAssessment] = useState<UseCaseAssessment | null>(null);
 
   const handleParse = async () => {
     if (!selectedFile) {
@@ -19,6 +21,7 @@ const UploadPage = () => {
 
     setLoading(true);
     setError(null);
+    setUseCaseAssessment(null);
 
     try {
       const response = await parseDocument(selectedFile, {
@@ -31,10 +34,26 @@ const UploadPage = () => {
       if (typeof response.project_id === "number") {
         setProjectId(response.project_id);
       }
+      setUseCaseAssessment(response.use_case_assessment ?? null);
     } catch (requestError) {
-      const message =
-        requestError instanceof Error ? requestError.message : "Failed to parse document.";
-      setError(message);
+      if (requestError instanceof ApiError) {
+        if (requestError.status === 422 && requestError.payload?.code === "unsupported_document") {
+          setError(
+            requestError.payload.message ||
+              "This document does not fit the currently supported use cases for this product.",
+          );
+          setUseCaseAssessment(requestError.payload.assessment ?? null);
+          setParsedDocument(null);
+          return;
+        }
+        setError(requestError.message || "Failed to parse document.");
+        setUseCaseAssessment(null);
+      } else {
+        const message =
+          requestError instanceof Error ? requestError.message : "Failed to parse document.";
+        setError(message);
+        setUseCaseAssessment(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -82,6 +101,26 @@ const UploadPage = () => {
           <div className="message error">
             <AlertCircle size={16} />
             <span>{error}</span>
+          </div>
+        )}
+        {useCaseAssessment && !useCaseAssessment.is_supported && (
+          <div className="unsupported-card">
+            <h3>This file is outside current supported use cases</h3>
+            <p>
+              The platform currently supports documents for SOW generation, presentation generation, and
+              requirement extraction.
+            </p>
+            {!!useCaseAssessment.reasons.length && (
+              <ul className="unsupported-reasons">
+                {useCaseAssessment.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+            <p className="unsupported-hint">
+              Try uploading project scope notes, proposal documents, requirement specs, or business planning
+              documents.
+            </p>
           </div>
         )}
         {parsedDocument && (

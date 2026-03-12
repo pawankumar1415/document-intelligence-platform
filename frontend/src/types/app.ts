@@ -15,8 +15,16 @@ export type ParsedDocument = {
 
 export type ParseResponse = {
   document: ParsedDocument;
+  use_case_assessment?: UseCaseAssessment;
   project_id?: number;
   document_id?: number;
+};
+
+export type UseCaseAssessment = {
+  is_supported: boolean;
+  matched_use_cases: string[];
+  confidence: number;
+  reasons: string[];
 };
 
 export type DocumentInput = {
@@ -101,6 +109,7 @@ export type ProviderCatalogEntry = {
   default_model: string;
   models: ProviderModelOption[];
   source: string;
+  source_message?: string | null;
 };
 
 export type EmbeddingModelOption = {

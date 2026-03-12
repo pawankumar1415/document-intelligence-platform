@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import AIControlDrawer from "./components/AIControlDrawer";
 import Navbar from "./components/Navbar";
-import ModelControlBar from "./components/ModelControlBar";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AppStateProvider } from "./context/AppStateContext";
 import DashboardPage from "./pages/DashboardPage";
@@ -23,8 +23,8 @@ function App() {
             <ProtectedRoute>
               <div className="app-shell">
                 <Navbar />
+                <AIControlDrawer />
                 <main className="main-content">
-                  <ModelControlBar />
                   <Routes>
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/upload" element={<UploadPage />} />

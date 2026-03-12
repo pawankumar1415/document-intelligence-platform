@@ -28,6 +28,8 @@ const ModelControlBar = () => {
     llmModel,
     providerCatalog,
     providerCatalogLoading,
+    providerCatalogError,
+    refreshProviderCatalog,
     setLlmProvider,
     setLlmModel,
     embeddingCatalog,
@@ -44,6 +46,7 @@ const ModelControlBar = () => {
   const [embeddingModelId, setEmbeddingModelId] = useState(embeddingCatalog?.model_id ?? "");
   const [localMessage, setLocalMessage] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [showEmbeddingSettings, setShowEmbeddingSettings] = useState(false);
   const embeddingModelOptions =
     embeddingBackend === embeddingCatalog?.backend
       ? embeddingCatalog?.supported_models ?? []
@@ -80,6 +83,20 @@ const ModelControlBar = () => {
       setLocalError(message);
     }
   };
+  const handleRefreshModels = async () => {
+    setLocalMessage(null);
+    setLocalError(null);
+    try {
+      await refreshProviderCatalog();
+      setLocalMessage("Provider model catalog refreshed.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not refresh provider catalog.";
+      setLocalError(message);
+    }
+  };
+
+  const modelSource = activeProvider?.source ?? "disabled";
+  const modelSourceMessage = activeProvider?.source_message;
 
   return (
     <section className="model-control-bar panel">
@@ -87,10 +104,10 @@ const ModelControlBar = () => {
         <h3>
           <Cpu size={16} /> AI Runtime Controls
         </h3>
-        <p>Select generation provider/model and embedding backend/model for new parse operations.</p>
+        <p>Choose generation provider/model and optional embedding settings for new parse operations.</p>
       </div>
 
-      <div className="model-control-grid">
+      <div className="model-control-grid compact">
         <label>
           LLM Provider
           <select
@@ -124,53 +141,84 @@ const ModelControlBar = () => {
             ))}
           </select>
         </label>
-
-        <label>
-          Embedding Backend
-          <select
-            className="provider-select"
-            value={embeddingBackend}
-            onChange={(event) => setEmbeddingBackend(event.target.value)}
-            disabled={embeddingUpdateLoading}
-          >
-            {EMBEDDING_BACKEND_OPTIONS.map((backend) => (
-              <option key={backend.id} value={backend.id}>
-                {backend.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          Embedding Model
-          <select
-            className="provider-select"
-            value={embeddingModelId}
-            onChange={(event) => setEmbeddingModelId(event.target.value)}
-            disabled={embeddingUpdateLoading || !embeddingCatalog}
-          >
-            {embeddingModelOptions.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.label} ({model.dimension})
-              </option>
-            ))}
-            {!embeddingModelOptions.length && (
-              <option value={embeddingCatalog?.model_id || embeddingModelId}>
-                {embeddingCatalog?.model_id || "No embedding models"}
-              </option>
-            )}
-          </select>
-        </label>
       </div>
 
       <div className="model-control-actions">
         <button
-          className="btn-primary"
+          className="btn-ghost"
           type="button"
-          onClick={handleApply}
-          disabled={embeddingUpdateLoading || !embeddingModelId}
+          onClick={handleRefreshModels}
+          disabled={providerCatalogLoading}
         >
-          <Layers size={14} /> {embeddingUpdateLoading ? "Applying..." : "Apply Embedding"}
+          Refresh Models
+        </button>
+        <button className="btn-ghost" type="button" onClick={() => setShowEmbeddingSettings((current) => !current)}>
+          {showEmbeddingSettings ? "Hide Embedding Settings" : "Show Embedding Settings"}
+        </button>
+        <span className={`provider-source ${modelSource}`}>
+          Provider catalog: {modelSource === "live" ? "Live" : modelSource === "env_fallback" ? "Fallback" : modelSource}
+        </span>
+      </div>
+
+      {showEmbeddingSettings && (
+        <div className="model-control-grid">
+          <label>
+            Embedding Backend
+            <select
+              className="provider-select"
+              value={embeddingBackend}
+              onChange={(event) => setEmbeddingBackend(event.target.value)}
+              disabled={embeddingUpdateLoading}
+            >
+              {EMBEDDING_BACKEND_OPTIONS.map((backend) => (
+                <option key={backend.id} value={backend.id}>
+                  {backend.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Embedding Model
+            <select
+              className="provider-select"
+              value={embeddingModelId}
+              onChange={(event) => setEmbeddingModelId(event.target.value)}
+              disabled={embeddingUpdateLoading || !embeddingCatalog}
+            >
+              {embeddingModelOptions.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label} ({model.dimension})
+                </option>
+              ))}
+              {!embeddingModelOptions.length && (
+                <option value={embeddingCatalog?.model_id || embeddingModelId}>
+                  {embeddingCatalog?.model_id || "No embedding models"}
+                </option>
+              )}
+            </select>
+          </label>
+          <div className="model-control-inline-action">
+            <button
+              className="btn-primary"
+              type="button"
+              onClick={handleApply}
+              disabled={embeddingUpdateLoading || !embeddingModelId}
+            >
+              <Layers size={14} /> {embeddingUpdateLoading ? "Applying..." : "Apply Embedding"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="model-control-actions">
+        <button
+          className="btn-ghost"
+          type="button"
+          onClick={() => setShowEmbeddingSettings(true)}
+          disabled={showEmbeddingSettings}
+        >
+          Configure Embeddings
         </button>
         <span className="model-control-note">
           Active: {embeddingCatalog?.backend || "-"} / {embeddingCatalog?.model_id || "-"} / dim{" "}
@@ -181,6 +229,15 @@ const ModelControlBar = () => {
         Switching embedding backend/model affects new parse jobs and can fail if pgvector dimension mismatches
         existing data.
       </p>
+      {(activeProvider?.source === "env_fallback" || providerCatalogError) && (
+        <div className="message error">
+          <span>
+            Live model fetch is unavailable for this provider right now. Showing fallback model list.
+            {modelSourceMessage ? ` Details: ${modelSourceMessage}` : ""}
+            {providerCatalogError ? ` ${providerCatalogError}` : ""}
+          </span>
+        </div>
+      )}
 
       {(localError || embeddingUpdateError) && (
         <div className="message error">

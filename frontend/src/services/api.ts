@@ -1,5 +1,6 @@
 import type {
   AuthResponse,
+  UseCaseAssessment,
   GeneratePptxRequest,
   GenerateResult,
   GenerateSowRequest,
@@ -12,12 +13,44 @@ import type {
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "";
 
+export type ApiErrorPayload = {
+  code?: string;
+  message?: string;
+  assessment?: UseCaseAssessment;
+};
+
+export class ApiError extends Error {
+  status: number;
+  payload: ApiErrorPayload | null;
+
+  constructor(status: number, message: string, payload: ApiErrorPayload | null = null) {
+    super(message);
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 const requestJson = async <T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> => {
   const response = await fetch(input, init);
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`API Error (${response.status}): ${detail}`);
+    const raw = await response.text();
+    let detail = raw;
+    let payloadDetail: ApiErrorPayload | null = null;
+    try {
+      const payload = JSON.parse(raw) as { detail?: unknown };
+      if (typeof payload.detail === "string") {
+        detail = payload.detail;
+      } else if (payload.detail && typeof payload.detail === "object") {
+        const detailObject = payload.detail as ApiErrorPayload;
+        const reason = detailObject.assessment?.reasons?.[0];
+        detail = detailObject.message || reason || JSON.stringify(payload.detail);
+        payloadDetail = detailObject;
+      }
+    } catch {
+      detail = raw;
+    }
+    throw new ApiError(response.status, detail, payloadDetail);
   }
 
   return response.json() as Promise<T>;
@@ -145,7 +178,7 @@ export const downloadArtifact = async (
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`Download failed (${response.status}): ${detail}`);
+    throw new ApiError(response.status, detail, null);
   }
 
   const blob = await response.blob();
