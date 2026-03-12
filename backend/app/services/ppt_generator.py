@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.util import Inches, Pt
 
 from backend.app.models.schemas import GeneratePptxRequest, GenerateResult, GeneratedSlide
@@ -59,7 +58,9 @@ class PptGenerator:
         user_prompt = (
             "Return ONLY JSON in this shape: "
             '{"slides":[{"title":"string","bullets":["string","string","string"]}]}. '
-            "Generate concise slide titles and max 3 bullets each.\n\n"
+            "Generate concise slide titles and max 4 bullets each. "
+            "Use ONLY information grounded in the provided source. "
+            "If data is missing, write 'To be confirmed' instead of inventing facts.\n\n"
             f"Deck title: {request.deck_title}\n"
             f"Subtitle: {request.subtitle or ''}\n"
             f"Source:\n{context_blob}"
@@ -80,51 +81,89 @@ class PptGenerator:
                 if not title:
                     continue
                 bullets = [str(b).strip() for b in item.get("bullets", []) if str(b).strip()]
-                slides.append(GeneratedSlide(title=title, bullets=bullets[:3]))
+                slides.append(GeneratedSlide(title=title, bullets=bullets[:4]))
             return slides or None
         except Exception:
             return None
 
     def _write_presentation(self, *, output_path: str, request: GeneratePptxRequest, slides: list[GeneratedSlide]) -> None:
         presentation = Presentation(str(PPT_TEMPLATE_PATH)) if ppt_template_exists() else Presentation()
+        self._clear_existing_slides(presentation)
+        blank_layout = self._resolve_blank_layout(presentation)
 
-        title_layout = presentation.slide_layouts[0]
-        title_slide = presentation.slides.add_slide(title_layout)
-        title_slide.shapes.title.text = request.deck_title
-        subtitle = request.subtitle or request.source_document.title
-        for shape in title_slide.placeholders:
-            if shape.is_placeholder and shape.placeholder_format.type == PP_PLACEHOLDER.SUBTITLE:
-                shape.text = subtitle
-                break
+        title_slide = presentation.slides.add_slide(blank_layout)
+        self._write_title_slide_content(
+            title_slide=title_slide,
+            title_text=request.deck_title,
+            subtitle_text=request.subtitle or request.source_document.title,
+        )
         self._style_title_slide(title_slide)
         self._add_logo(title_slide)
 
-        bullet_layout = presentation.slide_layouts[1]
         for slide in slides:
-            generated_slide = presentation.slides.add_slide(bullet_layout)
-            generated_slide.shapes.title.text = slide.title
-            body_placeholder = None
-            for shape in generated_slide.placeholders:
-                if shape.is_placeholder and shape.placeholder_format.type == PP_PLACEHOLDER.BODY:
-                    body_placeholder = shape
-                    break
-            if body_placeholder is None:
-                textbox = generated_slide.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(11.5), Inches(4.6))
-                text_frame = textbox.text_frame
-            else:
-                text_frame = body_placeholder.text_frame
-            text_frame.clear()
-
-            for index, bullet in enumerate(slide.bullets):
-                paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
-                paragraph.text = bullet
-                paragraph.font.size = Pt(20)
-                paragraph.font.name = "Calibri"
-                paragraph.font.color.rgb = RGBColor(50, 50, 50)
+            generated_slide = presentation.slides.add_slide(blank_layout)
+            self._write_content_slide_content(generated_slide=generated_slide, slide=slide)
             self._style_content_slide(generated_slide)
             self._add_logo(generated_slide)
 
         presentation.save(output_path)
+
+    def _clear_existing_slides(self, presentation: Presentation) -> None:
+        slide_id_list = presentation.slides._sldIdLst
+        for slide_id in list(slide_id_list):
+            relationship_id = slide_id.rId
+            presentation.part.drop_rel(relationship_id)
+            slide_id_list.remove(slide_id)
+
+    def _resolve_blank_layout(self, presentation: Presentation):
+        for layout in presentation.slide_layouts:
+            if len(layout.placeholders) == 0:
+                return layout
+        if len(presentation.slide_layouts) >= 7:
+            return presentation.slide_layouts[6]
+        return presentation.slide_layouts[-1]
+
+    def _write_title_slide_content(self, *, title_slide, title_text: str, subtitle_text: str) -> None:
+        title_box = title_slide.shapes.add_textbox(Inches(0.9), Inches(0.85), Inches(11.0), Inches(1.1))
+        title_frame = title_box.text_frame
+        title_frame.clear()
+        title_paragraph = title_frame.paragraphs[0]
+        title_paragraph.text = title_text
+        title_paragraph.font.name = "Calibri"
+        title_paragraph.font.bold = True
+        title_paragraph.font.size = Pt(44)
+        title_paragraph.font.color.rgb = RGBColor(177, 18, 35)
+
+        subtitle_box = title_slide.shapes.add_textbox(Inches(0.95), Inches(2.05), Inches(10.5), Inches(1.0))
+        subtitle_frame = subtitle_box.text_frame
+        subtitle_frame.clear()
+        subtitle_paragraph = subtitle_frame.paragraphs[0]
+        subtitle_paragraph.text = subtitle_text
+        subtitle_paragraph.font.name = "Calibri"
+        subtitle_paragraph.font.size = Pt(22)
+        subtitle_paragraph.font.color.rgb = RGBColor(60, 60, 60)
+
+    def _write_content_slide_content(self, *, generated_slide, slide: GeneratedSlide) -> None:
+        title_box = generated_slide.shapes.add_textbox(Inches(0.75), Inches(0.55), Inches(11.4), Inches(0.95))
+        title_frame = title_box.text_frame
+        title_frame.clear()
+        title_paragraph = title_frame.paragraphs[0]
+        title_paragraph.text = slide.title
+        title_paragraph.font.name = "Calibri"
+        title_paragraph.font.bold = True
+        title_paragraph.font.size = Pt(36)
+        title_paragraph.font.color.rgb = RGBColor(177, 18, 35)
+
+        body_box = generated_slide.shapes.add_textbox(Inches(0.9), Inches(1.65), Inches(11.1), Inches(4.7))
+        text_frame = body_box.text_frame
+        text_frame.clear()
+        for index, bullet in enumerate(slide.bullets[:6]):
+            paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
+            paragraph.text = bullet
+            paragraph.level = 0
+            paragraph.font.size = Pt(22)
+            paragraph.font.name = "Calibri"
+            paragraph.font.color.rgb = RGBColor(50, 50, 50)
 
     def _add_logo(self, slide) -> None:
         if logo_exists():
@@ -140,10 +179,4 @@ class PptGenerator:
                 paragraph.font.color.rgb = RGBColor(177, 18, 35)
 
     def _style_content_slide(self, slide) -> None:
-        title_shape = slide.shapes.title
-        if title_shape and title_shape.has_text_frame:
-            for paragraph in title_shape.text_frame.paragraphs:
-                paragraph.font.name = "Calibri"
-                paragraph.font.bold = True
-                paragraph.font.size = Pt(34)
-                paragraph.font.color.rgb = RGBColor(177, 18, 35)
+        _ = slide

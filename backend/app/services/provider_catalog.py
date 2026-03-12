@@ -58,12 +58,14 @@ def _build_openai_catalog() -> dict[str, object]:
     if not enabled:
         return _empty_catalog("openai", "OpenAI", default_model)
 
+    source_message: str | None = None
     try:
         model_ids = _fetch_openai_model_ids()
         source = "live"
-    except Exception:
+    except Exception as exc:
         model_ids = [default_model]
         source = "env_fallback"
+        source_message = str(exc)
 
     models = _curate_models("openai", model_ids, default_model)
     if not models:
@@ -77,6 +79,7 @@ def _build_openai_catalog() -> dict[str, object]:
         "default_model": _resolve_default_model(default_model, models),
         "models": models,
         "source": source,
+        "source_message": source_message,
     }
 
 
@@ -86,12 +89,14 @@ def _build_groq_catalog() -> dict[str, object]:
     if not enabled:
         return _empty_catalog("groq", "Groq", default_model)
 
+    source_message: str | None = None
     try:
         model_ids = _fetch_groq_model_ids()
         source = "live"
-    except Exception:
+    except Exception as exc:
         model_ids = [default_model]
         source = "env_fallback"
+        source_message = str(exc)
 
     models = _curate_models("groq", model_ids, default_model)
     if not models:
@@ -105,6 +110,7 @@ def _build_groq_catalog() -> dict[str, object]:
         "default_model": _resolve_default_model(default_model, models),
         "models": models,
         "source": source,
+        "source_message": source_message,
     }
 
 
@@ -144,6 +150,7 @@ def _build_azure_catalog() -> dict[str, object]:
         "default_model": _resolve_default_model(default_model, models),
         "models": models,
         "source": "config",
+        "source_message": None,
     }
 
 
@@ -161,6 +168,7 @@ def _empty_catalog(provider: ProviderName, display_name: str, default_model: str
         "default_model": default_model,
         "models": [],
         "source": "disabled",
+        "source_message": None,
     }
 
 
@@ -177,6 +185,20 @@ def _fetch_groq_model_ids() -> list[str]:
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is not configured.")
 
+    model_ids_from_sdk: list[str] = []
+    sdk_error: str | None = None
+    try:
+        from groq import Groq
+
+        client = Groq(api_key=api_key)
+        response = client.models.list()
+        model_ids_from_sdk = [str(item.id).strip() for item in response.data if str(item.id).strip()]
+    except Exception as exc:
+        sdk_error = str(exc)
+
+    if model_ids_from_sdk:
+        return model_ids_from_sdk
+
     request = Request(
         "https://api.groq.com/openai/v1/models",
         headers={
@@ -188,7 +210,8 @@ def _fetch_groq_model_ids() -> list[str]:
         with urlopen(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError, TimeoutError) as exc:
-        raise RuntimeError("Could not fetch Groq models.") from exc
+        sdk_context = f" SDK error: {sdk_error}." if sdk_error else ""
+        raise RuntimeError(f"Could not fetch Groq models.{sdk_context}") from exc
 
     return [str(item.get("id", "")).strip() for item in payload.get("data", []) if str(item.get("id", "")).strip()]
 

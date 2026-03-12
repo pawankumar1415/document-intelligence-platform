@@ -23,8 +23,16 @@ class ParsedDocument(BaseModel):
     paragraph_count: int
 
 
+class UseCaseAssessment(BaseModel):
+    is_supported: bool
+    matched_use_cases: list[str] = Field(default_factory=list)
+    confidence: float
+    reasons: list[str] = Field(default_factory=list)
+
+
 class ParseResponse(BaseModel):
     document: ParsedDocument
+    use_case_assessment: UseCaseAssessment | None = None
     project_id: int | None = None
     document_id: int | None = None
 
@@ -142,6 +150,7 @@ class ProviderCatalogEntry(BaseModel):
     default_model: str
     models: list[ProviderModelOption] = Field(default_factory=list)
     source: str
+    source_message: str | None = None
 
 
 class EmbeddingModelOption(BaseModel):

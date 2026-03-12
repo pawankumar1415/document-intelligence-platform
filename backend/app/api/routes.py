@@ -18,6 +18,7 @@ from backend.app.models.schemas import (
     ProviderCatalogResponse,
     ProjectCreateRequest,
     ProjectResponse,
+    UseCaseAssessment,
     VectorStatusResponse,
 )
 from backend.app.services import persistence
@@ -41,6 +42,7 @@ from backend.app.services.document_parser import DocumentParser
 from backend.app.services.ppt_generator import PptGenerator
 from backend.app.services.provider_catalog import get_provider_catalog, resolve_chat_model
 from backend.app.services.sow_generator import SowGenerator
+from backend.app.services.use_case_router import screen_document_for_supported_use_cases
 from backend.app.services.vector_store import (
     init_vector_store,
     query_similar_chunks,
@@ -165,6 +167,22 @@ async def parse_document(
         parsed_document = await document_parser.parse_upload(file)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    use_case_screening = screen_document_for_supported_use_cases(parsed_document)
+    use_case_assessment = UseCaseAssessment(
+        is_supported=use_case_screening.is_supported,
+        matched_use_cases=use_case_screening.matched_use_cases,
+        confidence=use_case_screening.confidence,
+        reasons=use_case_screening.reasons,
+    )
+    if not use_case_screening.is_supported:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unsupported_document",
+                "message": "This document does not match supported use cases for this platform.",
+                "assessment": use_case_assessment.model_dump(),
+            },
+        )
 
     user_id = int(user["id"])
     resolved_project_id = project_id
@@ -202,6 +220,7 @@ async def parse_document(
 
     return ParseResponse(
         document=parsed_document,
+        use_case_assessment=use_case_assessment,
         project_id=int(resolved_project_id),
         document_id=int(document_id),
     )
@@ -212,6 +231,22 @@ def generate_sow(
     request: GenerateSowRequest,
     user: dict = Depends(get_required_user),
 ) -> GenerateResult:
+    use_case_screening = screen_document_for_supported_use_cases(request.source_document)
+    if not use_case_screening.is_supported:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unsupported_document",
+                "message": "This document does not match supported generation use cases.",
+                "assessment": UseCaseAssessment(
+                    is_supported=use_case_screening.is_supported,
+                    matched_use_cases=use_case_screening.matched_use_cases,
+                    confidence=use_case_screening.confidence,
+                    reasons=use_case_screening.reasons,
+                ).model_dump(),
+            },
+        )
+
     user_id = int(user["id"])
     resolved_project_id = request.project_id
     if resolved_project_id is not None:
@@ -254,6 +289,22 @@ def generate_pptx(
     request: GeneratePptxRequest,
     user: dict = Depends(get_required_user),
 ) -> GenerateResult:
+    use_case_screening = screen_document_for_supported_use_cases(request.source_document)
+    if not use_case_screening.is_supported:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unsupported_document",
+                "message": "This document does not match supported generation use cases.",
+                "assessment": UseCaseAssessment(
+                    is_supported=use_case_screening.is_supported,
+                    matched_use_cases=use_case_screening.matched_use_cases,
+                    confidence=use_case_screening.confidence,
+                    reasons=use_case_screening.reasons,
+                ).model_dump(),
+            },
+        )
+
     user_id = int(user["id"])
     resolved_project_id = request.project_id
     if resolved_project_id is not None:
