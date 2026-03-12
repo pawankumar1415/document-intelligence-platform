@@ -4,6 +4,7 @@ import json
 from typing import Literal
 
 from backend.app.config import env, env_required
+from backend.app.services.provider_catalog import resolve_chat_model
 
 
 LLMProvider = Literal["openai", "groq", "azure_openai"]
@@ -37,12 +38,13 @@ def generate_json_object(
     system_prompt: str,
     user_prompt: str,
     temperature: float = 0.2,
+    model: str | None = None,
 ) -> dict:
     if provider == "openai":
         client = _get_openai_client()
-        model = env("OPENAI_CHAT_MODEL", "gpt-4o-mini") or "gpt-4o-mini"
+        resolved_model = resolve_chat_model("openai", model)
         response = client.chat.completions.create(
-            model=model,
+            model=resolved_model,
             temperature=temperature,
             response_format={"type": "json_object"},
             messages=[
@@ -55,7 +57,7 @@ def generate_json_object(
 
     if provider == "azure_openai":
         client = _get_azure_client()
-        deployment = env_required("AZURE_OPENAI_CHAT_DEPLOYMENT")
+        deployment = resolve_chat_model("azure_openai", model or env("AZURE_OPENAI_CHAT_DEPLOYMENT"))
         response = client.chat.completions.create(
             model=deployment,
             temperature=temperature,
@@ -69,9 +71,9 @@ def generate_json_object(
         return json.loads(text)
 
     client = _get_groq_client()
-    model = env("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile") or "llama-3.3-70b-versatile"
+    resolved_model = resolve_chat_model("groq", model)
     response = client.chat.completions.create(
-        model=model,
+        model=resolved_model,
         temperature=temperature,
         response_format={"type": "json_object"},
         messages=[
@@ -81,26 +83,3 @@ def generate_json_object(
     )
     text = response.choices[0].message.content or "{}"
     return json.loads(text)
-
-
-def embed_texts(provider: LLMProvider, texts: list[str]) -> list[list[float]]:
-    if not texts:
-        return []
-
-    embedding_provider = provider
-    if provider == "groq":
-        embedding_provider = (env("EMBEDDING_PROVIDER", "openai") or "openai")  # groq has no embedding API
-
-    if embedding_provider == "openai":
-        client = _get_openai_client()
-        model = env("OPENAI_EMBED_MODEL", "text-embedding-3-small") or "text-embedding-3-small"
-        response = client.embeddings.create(model=model, input=texts)
-        return [item.embedding for item in response.data]
-
-    if embedding_provider == "azure_openai":
-        client = _get_azure_client()
-        deployment = env_required("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
-        response = client.embeddings.create(model=deployment, input=texts)
-        return [item.embedding for item in response.data]
-
-    raise RuntimeError(f"Unsupported embedding provider: {embedding_provider}")

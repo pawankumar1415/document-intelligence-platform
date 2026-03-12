@@ -5,6 +5,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+LLMProvider = Literal["openai", "groq", "azure_openai"]
+
+
 class ParsedSection(BaseModel):
     heading: str
     body: str
@@ -38,7 +41,8 @@ class GenerateSowRequest(BaseModel):
     source_document: DocumentInput
     assumptions: list[str] = Field(default_factory=list)
     project_id: int | None = None
-    llm_provider: Literal["openai", "groq", "azure_openai"] = "openai"
+    llm_provider: LLMProvider = "openai"
+    llm_model: str | None = None
 
 
 class GeneratePptxRequest(BaseModel):
@@ -47,7 +51,8 @@ class GeneratePptxRequest(BaseModel):
     source_document: DocumentInput
     max_content_slides: int = Field(default=4, ge=2, le=8)
     project_id: int | None = None
-    llm_provider: Literal["openai", "groq", "azure_openai"] = "openai"
+    llm_provider: LLMProvider = "openai"
+    llm_model: str | None = None
 
 
 class GeneratedSection(BaseModel):
@@ -119,3 +124,40 @@ class ArtifactRecord(BaseModel):
 class VectorStatusResponse(BaseModel):
     configured: bool
     embedding_dim: int
+    embedding_backend: str
+    embedding_model_id: str
+
+
+class ProviderModelOption(BaseModel):
+    id: str
+    label: str
+    provider: LLMProvider
+    is_default: bool = False
+
+
+class ProviderCatalogEntry(BaseModel):
+    provider: LLMProvider
+    display_name: str
+    enabled: bool
+    default_model: str
+    models: list[ProviderModelOption] = Field(default_factory=list)
+    source: str
+
+
+class EmbeddingModelOption(BaseModel):
+    id: str
+    label: str
+    dimension: int
+
+
+class EmbeddingCatalog(BaseModel):
+    backend: str
+    model_id: str
+    dimension: int
+    supported_models: list[EmbeddingModelOption] = Field(default_factory=list)
+    label: str
+
+
+class ProviderCatalogResponse(BaseModel):
+    providers: list[ProviderCatalogEntry] = Field(default_factory=list)
+    embedding: EmbeddingCatalog

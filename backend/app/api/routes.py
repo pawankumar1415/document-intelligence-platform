@@ -13,6 +13,7 @@ from backend.app.models.schemas import (
     GenerateResult,
     GenerateSowRequest,
     ParseResponse,
+    ProviderCatalogResponse,
     ProjectCreateRequest,
     ProjectResponse,
     VectorStatusResponse,
@@ -25,10 +26,11 @@ from backend.app.services.auth_service import (
     verify_credentials,
 )
 from backend.app.services.chunking import chunk_text
+from backend.app.services.embedding_service import embed_documents, embed_query, embedding_configuration
 from backend.app.services.file_utils import OUTPUT_DIR
 from backend.app.services.document_parser import DocumentParser
-from backend.app.services.llm_provider import embed_texts
 from backend.app.services.ppt_generator import PptGenerator
+from backend.app.services.provider_catalog import get_provider_catalog, resolve_chat_model
 from backend.app.services.sow_generator import SowGenerator
 from backend.app.services.vector_store import (
     query_similar_chunks,
@@ -57,6 +59,15 @@ def health_check() -> dict[str, str]:
 def get_vector_status() -> VectorStatusResponse:
     status = vector_store_status()
     return VectorStatusResponse(**status)
+
+
+@router.get("/api/v1/providers/models", response_model=ProviderCatalogResponse)
+def get_provider_models(user: dict = Depends(get_required_user)) -> ProviderCatalogResponse:
+    del user
+    return ProviderCatalogResponse(
+        providers=get_provider_catalog(),
+        embedding=embedding_configuration(),
+    )
 
 
 @router.post("/api/v1/auth/register", response_model=AuthResponse)
@@ -151,7 +162,7 @@ async def parse_document(
     if not chunks:
         chunks = [parsed_document.text]
     try:
-        embeddings = embed_texts(llm_provider, chunks)
+        embeddings = embed_documents(chunks)
         upsert_chunks(
             user_id=user_id,
             project_id=int(resolved_project_id),
@@ -187,7 +198,8 @@ def generate_sow(
 
     retrieval_context: list[str] = []
     try:
-        query_embedding = embed_texts(request.llm_provider, [request.source_document.text[:1500]])[0]
+        request.llm_model = resolve_chat_model(request.llm_provider, request.llm_model)
+        query_embedding = embed_query(request.source_document.text[:1500])
         matches = query_similar_chunks(
             user_id=user_id,
             project_id=int(resolved_project_id),
@@ -195,6 +207,8 @@ def generate_sow(
             limit=5,
         )
         retrieval_context = [match.content for match in matches]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception:
         retrieval_context = []
 
@@ -226,7 +240,8 @@ def generate_pptx(
 
     retrieval_context: list[str] = []
     try:
-        query_embedding = embed_texts(request.llm_provider, [request.source_document.text[:1500]])[0]
+        request.llm_model = resolve_chat_model(request.llm_provider, request.llm_model)
+        query_embedding = embed_query(request.source_document.text[:1500])
         matches = query_similar_chunks(
             user_id=user_id,
             project_id=int(resolved_project_id),
@@ -234,6 +249,8 @@ def generate_pptx(
             limit=5,
         )
         retrieval_context = [match.content for match in matches]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception:
         retrieval_context = []
 

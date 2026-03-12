@@ -68,6 +68,7 @@ class PptGenerator:
         try:
             payload = generate_json_object(
                 provider=request.llm_provider,
+                model=request.llm_model,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.2,
