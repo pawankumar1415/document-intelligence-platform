@@ -1,70 +1,142 @@
 # BSBI Document Intelligence Platform
 
-BSBI Document Intelligence is a full-stack application that converts uploaded documents into business-ready outputs using retrieval + LLM generation.
+BSBI Document Intelligence turns uploaded source documents into branded consulting deliverables. The current slice supports document parsing, vector indexing, grounded retrieval, switchable LLM-backed generation, and export of BSBI-styled `SOW` and `PPTX` outputs.
 
-Current outputs:
-- Branded `SOW` (`.docx`)
-- Branded `Presentation` (`.pptx`)
+## What The Product Does
 
-Supported source files in current slice:
-- `.docx`
-- `.txt`
+- Auth-first web app with React + Vite + TypeScript frontend and FastAPI backend
+- Upload and parse `docx` and `txt` source files
+- Chunk and index parsed content into PostgreSQL `pgvector`
+- Generate branded deliverables using a selectable LLM provider and model
+- Download generated `docx` and `pptx` artifacts
 
-## Core Capabilities
+## Product Flow
 
-- Auth-first workflow (app always starts at login)
-- Project-scoped document parsing and persistence
-- PostgreSQL `pgvector` chunk indexing and similarity retrieval
-- Switchable LLM provider per session:
-  - `OpenAI`
-  - `Groq`
-  - `Azure OpenAI`
-- Branded output generation (BSBI logo/styling applied in generated files)
+```mermaid
+flowchart LR
+    A[Login] --> B[Create or Reuse Project]
+    B --> C[Upload docx/txt]
+    C --> D[Parse Document]
+    D --> E[Chunk Text]
+    E --> F[Local Hugging Face Embeddings]
+    F --> G[Postgres + pgvector Index]
+    G --> H[Select Provider + Model]
+    H --> I[Retrieve Relevant Chunks]
+    I --> J[Generate SOW or PPT]
+    J --> K[Apply BSBI Branding]
+    K --> L[Download Artifact]
+```
 
 ## Architecture
 
-- **Frontend**: React + Vite + TypeScript
-- **Backend**: FastAPI (Python)
-- **Relational persistence**: SQLite (`backend/data/app.db`) for users/projects/artifacts
-- **Vector store**: PostgreSQL with `pgvector` extension
-- **Generation pipeline**:
-  1. Parse source document
-  2. Chunk + embed + index vectors
-  3. Retrieve relevant chunks
-  4. Generate draft via selected LLM provider
-  5. Render branded `.docx` / `.pptx`
+### Frontend
+- `React`
+- `Vite`
+- `TypeScript`
+- Login-first UI with protected routes
+- Provider selector plus model selector driven by backend catalog
 
-## Repository Structure
+### Backend
+- `FastAPI`
+- `SQLite` for users, sessions, projects, documents, artifacts
+- `PostgreSQL + pgvector` for vector search
+- Local `sentence-transformers` embeddings
+- Switchable generation providers:
+  - `OpenAI`
+  - `Groq`
+  - `Azure OpenAI`
 
-```text
-backend/                 FastAPI app and generation pipeline
-frontend/                React UI
-Documentation/           Plans, tech spec, and work log
-logo/                    Brand assets
+### Document Outputs
+- `python-docx` for branded SOW generation
+- `python-pptx` for branded presentation generation
+- BSBI logo and presentation styling applied during export
+
+## Technology Matrix
+
+| Concern | Current Choice | Notes |
+|---|---|---|
+| Web UI | React + Vite + TypeScript | Separate dev server or backend-served build |
+| API | FastAPI | Single backend for auth, parsing, retrieval, generation |
+| App DB | SQLite | Local persistence for users/projects/artifacts |
+| Vector DB | PostgreSQL + pgvector | Local Docker setup recommended on Windows |
+| Embeddings | `nomic-ai/nomic-embed-text-v1.5` | Local Hugging Face baseline |
+| Alternate Embeddings | `BAAI/bge-m3`, `intfloat/multilingual-e5-large-instruct` | Configurable through env |
+| Generation Providers | OpenAI, Groq, Azure OpenAI | Frontend-selectable |
+| Azure Model Selection | Deployment names | Azure inference is deployment-based |
+
+## Embedding Options
+
+The current backend is designed around open-source local embeddings. Supported embedding model IDs:
+
+- `nomic-ai/nomic-embed-text-v1.5` (default)
+- `BAAI/bge-m3`
+- `intfloat/multilingual-e5-large-instruct`
+
+Default recommendation:
+- Use `nomic-ai/nomic-embed-text-v1.5` for the first local deployment
+- Move to `BAAI/bge-m3` if multilingual retrieval quality becomes the priority
+
+Operational note:
+- The first local embedding request downloads the Hugging Face model to the local cache, so initial startup or first parse can be noticeably slower
+
+## Local pgvector Setup On Windows
+
+The easiest local setup is Docker.
+
+1. Install Docker Desktop
+2. Start PostgreSQL with pgvector:
+
+```bash
+docker run --name bsbi-pgvector ^
+  -e POSTGRES_PASSWORD=postgres ^
+  -e POSTGRES_DB=document_intelligence ^
+  -p 5432:5432 ^
+  -d pgvector/pgvector:pg17
 ```
 
-## Prerequisites
+3. Enable the extension:
 
-- Python `3.12+` (project currently tested in local `venv`)
-- Node.js `20+` (you are on `25.8.0`, which is fine)
-- PostgreSQL with `pgvector` enabled
+```bash
+psql -h localhost -U postgres -d document_intelligence -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+4. Point the app to it:
+
+```env
+PGVECTOR_DSN=postgresql://postgres:postgres@localhost:5432/document_intelligence
+```
 
 ## Configuration
 
-Create and populate `.env` in project root (starter template is included):
+Copy [.env.example](./.env.example) to `.env` and fill real secrets locally.
 
-- `PGVECTOR_DSN`
-- `OPENAI_API_KEY`
-- `GROQ_API_KEY`
-- `AZURE_OPENAI_API_KEY`
-- `AZURE_OPENAI_ENDPOINT`
-- model/deployment names for each provider
+Core settings:
 
-Important: `.env` is git-ignored and should never be committed.
+```env
+DEFAULT_LLM_PROVIDER=openai
+EMBEDDING_BACKEND=huggingface_local
+EMBEDDING_MODEL_ID=nomic-ai/nomic-embed-text-v1.5
+PGVECTOR_DSN=postgresql://postgres:postgres@localhost:5432/document_intelligence
+OPENAI_ENABLED=true
+OPENAI_API_KEY=...
+OPENAI_CHAT_MODEL=gpt-4o-mini
+GROQ_ENABLED=true
+GROQ_API_KEY=...
+GROQ_CHAT_MODEL=llama-3.3-70b-versatile
+AZURE_OPENAI_ENABLED=false
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_CHAT_DEPLOYMENTS_JSON=[{"id":"gpt-4o-mini","label":"GPT-4o Mini Deployment"}]
+```
 
-## Running the Project
+Security note:
+- `.env` is ignored by git
+- If any real secret has already been stored in `.env`, rotate it before sharing the repo
 
-### Option A: Split dev mode (recommended for UI development)
+## Running The Project
+
+### Split Dev Mode
 
 Terminal 1:
 
@@ -83,7 +155,7 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-### Option B: Single-server mode (backend serves built frontend)
+### Single-Server Mode
 
 ```bash
 cd frontend
@@ -94,36 +166,62 @@ uvicorn backend.app.main:app --reload
 
 Open `http://localhost:8000`.
 
+Both routes are login-first.
+
+## Provider And Model Selection
+
+- The frontend asks the backend for available provider/model choices through `GET /api/v1/providers/models`
+- `OpenAI` and `Groq` models are fetched dynamically and filtered to usable chat models
+- `Azure OpenAI` exposes configured deployment names from env, not raw upstream model names
+- Generated requests carry both `llm_provider` and `llm_model`
+
 ## API Surface
 
-Health:
-- `GET /health`
-- `GET /api/v1/vector/status`
-
-Auth:
+### Auth
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
 
-Projects (auth required):
+### Project And Parsing
 - `POST /api/v1/projects`
 - `GET /api/v1/projects`
-
-Document and generation (auth required):
 - `POST /api/v1/parse`
+
+### Generation And Model Discovery
+- `GET /api/v1/providers/models`
+- `GET /api/v1/vector/status`
 - `POST /api/v1/generate/sow`
 - `POST /api/v1/generate/pptx`
 
-Artifacts (auth required):
+### Artifacts
 - `GET /api/v1/artifacts`
 - `GET /api/v1/artifacts/{artifact_name}`
 
-Generated files are stored in `backend/output/`.
+### Health
+- `GET /health`
 
-## Notes
+## Repository Layout
 
-- Invalid or corrupted `.docx` files return `400` validation errors (not server crashes).
-- If vector indexing is misconfigured (missing DSN/keys), parse returns a clear error from backend.
-- Provider switching is controlled from frontend and passed to backend on parse/generate requests.
+```text
+backend/                 FastAPI app, parsing, retrieval, generation, persistence
+frontend/                React app
+Documentation/           Plans, spec, work log
+logo/                    Brand assets
+```
+
+## Current Scope
+
+Included now:
+- Login/register
+- Project-scoped parsing
+- Local embeddings + pgvector retrieval
+- Dynamic provider/model catalog
+- Branded SOW and PPT generation
+
+Not included yet:
+- `pdf`, `xlsx`, or image OCR ingestion
+- background job queue
+- enterprise SSO
+- collaborative editing
 
 ## Documentation
 
