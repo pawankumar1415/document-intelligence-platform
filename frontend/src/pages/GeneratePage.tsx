@@ -6,7 +6,7 @@ import { useAppState } from "../context/AppStateContext";
 import { generatePptx, generateSow } from "../services/api";
 
 const GeneratePage = () => {
-  const { parsedDocument, addOutput, projectId, token, llmProvider } = useAppState();
+  const { parsedDocument, addOutput, llmModel, projectId, providerCatalogError, token, llmProvider } = useAppState();
 
   const [clientName, setClientName] = useState("BSBI Consulting");
   const [projectName, setProjectName] = useState("Document Intelligence Discovery");
@@ -54,6 +54,7 @@ const GeneratePage = () => {
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean),
+        llm_model: llmModel || undefined,
       }, { token });
       addOutput(response);
       setMessage("SOW draft generated successfully.");
@@ -80,6 +81,7 @@ const GeneratePage = () => {
         },
         project_id: projectId ?? undefined,
         llm_provider: llmProvider,
+        llm_model: llmModel || undefined,
         max_content_slides: maxSlides,
       }, { token });
       addOutput(response);
@@ -99,6 +101,12 @@ const GeneratePage = () => {
         <p>
           Use the parsed content to create draft SOW and PPT outputs. Active provider:{" "}
           <strong>{llmProvider}</strong>
+          {llmModel ? (
+            <>
+              {" "}
+              | Active model: <strong>{llmModel}</strong>
+            </>
+          ) : null}
         </p>
       </div>
 
@@ -112,6 +120,12 @@ const GeneratePage = () => {
         <div className="message error">
           <AlertCircle size={16} />
           <span>{error}</span>
+        </div>
+      )}
+      {providerCatalogError && (
+        <div className="message error">
+          <AlertCircle size={16} />
+          <span>{providerCatalogError}</span>
         </div>
       )}
 

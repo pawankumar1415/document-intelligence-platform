@@ -5,6 +5,7 @@ import type {
   GenerateSowRequest,
   LLMProvider,
   ParseResponse,
+  ProviderCatalogResponse,
 } from "../types/app";
 
 export const API_BASE_URL =
@@ -68,6 +69,15 @@ export const parseDocument = async (
       ...authHeaders(options.token),
     },
     body: form,
+  });
+};
+
+export const getProviderCatalog = async (options: AuthOptions): Promise<ProviderCatalogResponse> => {
+  return requestJson<ProviderCatalogResponse>(`${API_BASE_URL}/api/v1/providers/models`, {
+    method: "GET",
+    headers: {
+      ...authHeaders(options.token),
+    },
   });
 };
 

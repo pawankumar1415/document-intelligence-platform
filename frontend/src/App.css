@@ -79,6 +79,10 @@
   color: var(--ink-strong);
 }
 
+.model-select {
+  max-width: 220px;
+}
+
 .user-chip {
   font-size: 0.78rem;
   color: var(--ink-muted);

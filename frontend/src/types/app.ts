@@ -32,6 +32,7 @@ export type GenerateSowRequest = {
   assumptions: string[];
   project_id?: number;
   llm_provider: LLMProvider;
+  llm_model?: string;
 };
 
 export type GeneratePptxRequest = {
@@ -41,6 +42,7 @@ export type GeneratePptxRequest = {
   max_content_slides: number;
   project_id?: number;
   llm_provider: LLMProvider;
+  llm_model?: string;
 };
 
 export type LLMProvider = "openai" | "groq" | "azure_openai";
@@ -83,4 +85,39 @@ export type AuthResponse = {
   token_type: "bearer";
   expires_in_seconds: number;
   user: AuthUser;
+};
+
+export type ProviderModelOption = {
+  id: string;
+  label: string;
+  provider: LLMProvider;
+  is_default: boolean;
+};
+
+export type ProviderCatalogEntry = {
+  provider: LLMProvider;
+  display_name: string;
+  enabled: boolean;
+  default_model: string;
+  models: ProviderModelOption[];
+  source: string;
+};
+
+export type EmbeddingModelOption = {
+  id: string;
+  label: string;
+  dimension: number;
+};
+
+export type EmbeddingCatalog = {
+  backend: string;
+  model_id: string;
+  dimension: number;
+  supported_models: EmbeddingModelOption[];
+  label: string;
+};
+
+export type ProviderCatalogResponse = {
+  providers: ProviderCatalogEntry[];
+  embedding: EmbeddingCatalog;
 };

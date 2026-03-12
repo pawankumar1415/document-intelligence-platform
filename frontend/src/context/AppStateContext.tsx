@@ -1,6 +1,14 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import type { AuthUser, LLMProvider, OutputArtifact, ParsedDocument } from "../types/app";
+import { getProviderCatalog } from "../services/api";
+import type {
+  AuthUser,
+  EmbeddingCatalog,
+  LLMProvider,
+  OutputArtifact,
+  ParsedDocument,
+  ProviderCatalogEntry,
+} from "../types/app";
 
 type AppStateContextValue = {
   parsedDocument: ParsedDocument | null;
@@ -9,11 +17,17 @@ type AppStateContextValue = {
   token: string | null;
   user: AuthUser | null;
   llmProvider: LLMProvider;
+  llmModel: string;
+  providerCatalog: ProviderCatalogEntry[];
+  providerCatalogLoading: boolean;
+  providerCatalogError: string | null;
+  embeddingCatalog: EmbeddingCatalog | null;
   setParsedDocument: (document: ParsedDocument | null) => void;
   setProjectId: (projectId: number | null) => void;
   setSession: (token: string, user: AuthUser) => void;
   clearSession: () => void;
   setLlmProvider: (provider: LLMProvider) => void;
+  setLlmModel: (provider: LLMProvider, model: string) => void;
   addOutput: (artifact: Omit<OutputArtifact, "id" | "created_at">) => void;
   clearAll: () => void;
 };
@@ -29,6 +43,10 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     const raw = localStorage.getItem("auth_user");
     return raw ? (JSON.parse(raw) as AuthUser) : null;
   });
+  const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>([]);
+  const [providerCatalogLoading, setProviderCatalogLoading] = useState(false);
+  const [providerCatalogError, setProviderCatalogError] = useState<string | null>(null);
+  const [embeddingCatalog, setEmbeddingCatalog] = useState<EmbeddingCatalog | null>(null);
   const [llmProvider, setLlmProvider] = useState<LLMProvider>(() => {
     const raw = localStorage.getItem("llm_provider");
     if (raw === "openai" || raw === "groq" || raw === "azure_openai") {
@@ -36,6 +54,73 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     }
     return "openai";
   });
+  const [selectedModels, setSelectedModels] = useState<Record<string, string>>(() => {
+    const raw = localStorage.getItem("llm_models");
+    if (!raw) {
+      return {};
+    }
+    try {
+      return JSON.parse(raw) as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    if (!token) {
+      setProviderCatalog([]);
+      setEmbeddingCatalog(null);
+      setProviderCatalogError(null);
+      return;
+    }
+
+    let isCancelled = false;
+    setProviderCatalogLoading(true);
+    setProviderCatalogError(null);
+
+    getProviderCatalog({ token })
+      .then((response) => {
+        if (isCancelled) {
+          return;
+        }
+        const enabledProviders = response.providers.filter((entry) => entry.enabled);
+        setProviderCatalog(enabledProviders);
+        setEmbeddingCatalog(response.embedding);
+        if (enabledProviders.length > 0 && !enabledProviders.some((entry) => entry.provider === llmProvider)) {
+          const fallbackProvider = enabledProviders[0].provider;
+          setLlmProvider(fallbackProvider);
+          localStorage.setItem("llm_provider", fallbackProvider);
+        }
+        setSelectedModels((current) => {
+          const next = { ...current };
+          for (const entry of enabledProviders) {
+            if (!next[entry.provider]) {
+              next[entry.provider] = entry.default_model || entry.models[0]?.id || "";
+            }
+          }
+          localStorage.setItem("llm_models", JSON.stringify(next));
+          return next;
+        });
+      })
+      .catch((error: unknown) => {
+        if (isCancelled) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : "Could not load provider catalog.";
+        setProviderCatalog([]);
+        setEmbeddingCatalog(null);
+        setProviderCatalogError(message);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setProviderCatalogLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [token]);
 
   const setSession = (nextToken: string, nextUser: AuthUser) => {
     setToken(nextToken);
@@ -50,6 +135,9 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     setProjectId(null);
     setParsedDocument(null);
     setOutputs([]);
+    setProviderCatalog([]);
+    setEmbeddingCatalog(null);
+    setProviderCatalogError(null);
     localStorage.removeItem("auth_token");
     localStorage.removeItem("auth_user");
   };
@@ -57,6 +145,17 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   const updateLlmProvider = (provider: LLMProvider) => {
     setLlmProvider(provider);
     localStorage.setItem("llm_provider", provider);
+  };
+
+  const updateLlmModel = (provider: LLMProvider, model: string) => {
+    setSelectedModels((current) => {
+      const next = {
+        ...current,
+        [provider]: model,
+      };
+      localStorage.setItem("llm_models", JSON.stringify(next));
+      return next;
+    });
   };
 
   const addOutput = (artifact: Omit<OutputArtifact, "id" | "created_at">) => {
@@ -75,6 +174,13 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     setProjectId(null);
   };
 
+  const activeProviderConfig = providerCatalog.find((entry) => entry.provider === llmProvider);
+  const llmModel =
+    selectedModels[llmProvider] ||
+    activeProviderConfig?.default_model ||
+    activeProviderConfig?.models[0]?.id ||
+    "";
+
   const value = useMemo(
     () => ({
       parsedDocument,
@@ -83,15 +189,33 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       token,
       user,
       llmProvider,
+      llmModel,
+      providerCatalog,
+      providerCatalogLoading,
+      providerCatalogError,
+      embeddingCatalog,
       setParsedDocument,
       setProjectId,
       setSession,
       clearSession,
       setLlmProvider: updateLlmProvider,
+      setLlmModel: updateLlmModel,
       addOutput,
       clearAll,
     }),
-    [llmProvider, outputs, parsedDocument, projectId, token, user],
+    [
+      embeddingCatalog,
+      llmModel,
+      llmProvider,
+      outputs,
+      parsedDocument,
+      projectId,
+      providerCatalog,
+      providerCatalogError,
+      providerCatalogLoading,
+      token,
+      user,
+    ],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
