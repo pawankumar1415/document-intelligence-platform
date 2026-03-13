@@ -33,6 +33,21 @@ SUPPORTED_EMBEDDING_MODELS: dict[str, dict[str, Any]] = {
         "trust_remote_code": False,
     },
 }
+OLLAMA_EMBEDDING_FALLBACK_DIMENSIONS: dict[str, int] = {
+    "qwen3-embedding:4b": 2560,
+    "qwen3-embedding:0.6b": 1024,
+    "nomic-embed-text": 768,
+    "mxbai-embed-large": 1024,
+    "bge-m3": 1024,
+    "all-minilm": 384,
+}
+OLLAMA_EMBEDDING_FALLBACK_MODELS = (
+    "qwen3-embedding:4b",
+    "qwen3-embedding:0.6b",
+    "nomic-embed-text",
+    "mxbai-embed-large",
+    "bge-m3",
+)
 
 SUPPORTED_EMBEDDING_BACKENDS = {"huggingface_local", "ollama"}
 _runtime_embedding_backend: str | None = None
@@ -100,7 +115,13 @@ def embedding_dimension(model_id: str | None = None) -> int:
     backend = configured_embedding_backend()
     resolved_model_id = model_id or configured_embedding_model_id()
     if backend == "ollama":
-        return _ollama_embedding_dimension(resolved_model_id)
+        try:
+            return _ollama_embedding_dimension(resolved_model_id)
+        except Exception:
+            fallback = OLLAMA_EMBEDDING_FALLBACK_DIMENSIONS.get(resolved_model_id)
+            if fallback is not None:
+                return fallback
+            raise
 
     metadata = SUPPORTED_EMBEDDING_MODELS.get(resolved_model_id)
     if metadata:
@@ -174,13 +195,7 @@ def _load_sentence_transformer(model_id: str):
 
 def _supported_models_for_backend(backend: str, model_id: str, dimension: int) -> list[dict[str, Any]]:
     if backend == "ollama":
-        return [
-            {
-                "id": model_id,
-                "label": f"Ollama: {model_id}",
-                "dimension": dimension,
-            }
-        ]
+        return _build_ollama_supported_models(model_id, dimension)
 
     return [
         {
@@ -238,3 +253,75 @@ def _normalize_vector(vector: list[float]) -> list[float]:
     if norm <= 0:
         return vector
     return [value / norm for value in vector]
+
+
+def _build_ollama_supported_models(active_model_id: str, active_dimension: int) -> list[dict[str, Any]]:
+    allowlist = _embedding_allowlist("OLLAMA_EMBED_MODEL_ALLOWLIST")
+
+    discovered: list[str] = []
+    if allowlist:
+        discovered = list(allowlist)
+    else:
+        try:
+            discovered = _fetch_ollama_embedding_model_ids()
+        except Exception:
+            discovered = list(OLLAMA_EMBEDDING_FALLBACK_MODELS)
+
+    ordered_ids: list[str] = []
+    for candidate in [active_model_id, *discovered]:
+        if candidate and candidate not in ordered_ids:
+            ordered_ids.append(candidate)
+
+    models: list[dict[str, Any]] = []
+    for candidate in ordered_ids:
+        candidate_dimension = _resolve_ollama_embedding_dimension(
+            candidate,
+            active_model_id=active_model_id,
+            active_dimension=active_dimension,
+        )
+        models.append(
+            {
+                "id": candidate,
+                "label": f"Ollama: {candidate}",
+                "dimension": candidate_dimension,
+            }
+        )
+
+    return models
+
+
+def _fetch_ollama_embedding_model_ids() -> list[str]:
+    request = Request(
+        f"{configured_ollama_base_url().rstrip('/')}/api/tags",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise RuntimeError("Could not fetch Ollama model list.") from exc
+
+    models: list[dict[str, Any]] = payload.get("models", [])
+    filtered: list[str] = []
+    for item in models:
+        model_id = str(item.get("name", "")).strip()
+        if not model_id:
+            continue
+        lowered = model_id.lower()
+        if "embed" in lowered or "embedding" in lowered:
+            filtered.append(model_id)
+    return filtered
+
+
+def _resolve_ollama_embedding_dimension(candidate: str, *, active_model_id: str, active_dimension: int) -> int:
+    if candidate == active_model_id:
+        return active_dimension
+    try:
+        return _ollama_embedding_dimension(candidate)
+    except Exception:
+        return OLLAMA_EMBEDDING_FALLBACK_DIMENSIONS.get(candidate, active_dimension)
+
+
+def _embedding_allowlist(env_key: str) -> list[str]:
+    raw = env(env_key, "") or ""
+    return [item.strip() for item in raw.split(",") if item.strip()]

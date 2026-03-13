@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-LLMProvider = Literal["openai", "groq", "azure_openai"]
+LLMProvider = Literal["openai", "groq", "azure_openai", "ollama"]
 
 
 class ParsedSection(BaseModel):
@@ -13,14 +13,21 @@ class ParsedSection(BaseModel):
     body: str
 
 
+class ExtractionSignal(BaseModel):
+    name: str
+    score: float
+    evidence: list[str] = Field(default_factory=list)
+
+
 class ParsedDocument(BaseModel):
     filename: str
-    file_type: Literal["docx", "txt"]
+    file_type: Literal["docx", "txt", "pdf"]
     title: str
     text: str
     sections: list[ParsedSection]
     word_count: int
     paragraph_count: int
+    extraction_signals: list[ExtractionSignal] = Field(default_factory=list)
 
 
 class UseCaseAssessment(BaseModel):

@@ -8,7 +8,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - optional until dependencies are installed
     psycopg = None
 
-from backend.app.config import env
+from backend.app.config import env, env_bool
 from backend.app.services.embedding_service import embedding_configuration
 
 
@@ -38,6 +38,7 @@ def init_vector_store() -> None:
     configured_dimension = int(config["dimension"])
     configured_model_id = str(config["model_id"])
     configured_backend = str(config["backend"])
+    reset_on_mismatch = env_bool("VECTOR_STORE_RESET_ON_MISMATCH", False)
 
     with _connect() as connection:
         with connection.cursor() as cursor:
@@ -56,10 +57,15 @@ def init_vector_store() -> None:
 
             existing_dimension = _get_existing_vector_dimension(cursor)
             if existing_dimension is not None and existing_dimension != configured_dimension:
-                raise RuntimeError(
-                    "Configured embedding dimension does not match the existing pgvector schema. "
-                    f"Configured={configured_dimension}, existing={existing_dimension}."
-                )
+                if reset_on_mismatch:
+                    _reset_vector_schema(cursor)
+                    existing_dimension = None
+                else:
+                    raise RuntimeError(
+                        "Configured embedding dimension does not match the existing pgvector schema. "
+                        f"Configured={configured_dimension}, existing={existing_dimension}. "
+                        + _mismatch_resolution_hint()
+                    )
 
             existing_config = cursor.execute(
                 """
@@ -74,10 +80,14 @@ def init_vector_store() -> None:
                     or str(existing_config[1]) != configured_model_id
                     or int(existing_config[2]) != configured_dimension
                 ):
-                    raise RuntimeError(
-                        "Configured embedding backend/model does not match the initialized vector store. "
-                        "Update the database or align EMBEDDING_MODEL_ID before startup."
-                    )
+                    if reset_on_mismatch:
+                        _reset_vector_schema(cursor)
+                        existing_config = None
+                    else:
+                        raise RuntimeError(
+                            "Configured embedding backend/model does not match the initialized vector store. "
+                            + _mismatch_resolution_hint()
+                        )
 
             cursor.execute(
                 f"""
@@ -215,3 +225,15 @@ def _get_existing_vector_dimension(cursor) -> int | None:
     if not formatted_type.startswith("vector(") or not formatted_type.endswith(")"):
         return None
     return int(formatted_type.removeprefix("vector(").removesuffix(")"))
+
+
+def _reset_vector_schema(cursor) -> None:
+    cursor.execute("DROP TABLE IF EXISTS document_chunks;")
+    cursor.execute("DELETE FROM vector_store_config WHERE id = 1;")
+
+
+def _mismatch_resolution_hint() -> str:
+    return (
+        "Set VECTOR_STORE_RESET_ON_MISMATCH=true to auto-reset the vector table for local development "
+        "(this deletes indexed chunks), or manually clear vector tables and restart."
+    )

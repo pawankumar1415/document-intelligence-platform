@@ -4,7 +4,12 @@ from backend.app.services.embedding_service import (
     _extract_ollama_embeddings,
     embedding_configuration,
 )
-from backend.app.services.provider_catalog import _build_azure_catalog, resolve_chat_model
+from backend.app.services.provider_catalog import (
+    _build_azure_catalog,
+    _build_groq_catalog,
+    _build_ollama_catalog,
+    resolve_chat_model,
+)
 
 
 def test_embedding_configuration_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -76,3 +81,53 @@ def test_azure_catalog_uses_deployment_config(monkeypatch: pytest.MonkeyPatch) -
     assert catalog["enabled"] is True
     assert catalog["default_model"] == "bsbi-gpt-4o-mini"
     assert catalog["models"][0]["id"] == "bsbi-gpt-4o-mini"
+
+
+def test_ollama_catalog_reads_live_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OLLAMA_ENABLED", "true")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    monkeypatch.setenv("OLLAMA_CHAT_MODEL", "qwen3:4b")
+    monkeypatch.setattr(
+        "backend.app.services.provider_catalog._fetch_ollama_model_ids",
+        lambda: ["qwen3:4b", "gemma3:4b", "qwen3-embedding:4b"],
+    )
+
+    catalog = _build_ollama_catalog()
+
+    assert catalog["enabled"] is True
+    assert catalog["source"] == "live"
+    assert "qwen3:4b" in [model["id"] for model in catalog["models"]]
+    # embedding-only models should not appear in chat model selector
+    assert "qwen3-embedding:4b" not in [model["id"] for model in catalog["models"]]
+
+
+def test_ollama_catalog_is_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OLLAMA_ENABLED", raising=False)
+    monkeypatch.setenv("OLLAMA_CHAT_MODEL", "qwen3:4b")
+    monkeypatch.setattr(
+        "backend.app.services.provider_catalog._fetch_ollama_model_ids",
+        lambda: ["qwen3:4b"],
+    )
+
+    catalog = _build_ollama_catalog()
+
+    assert catalog["enabled"] is True
+    assert catalog["default_model"] == "qwen3:4b"
+
+
+def test_groq_catalog_uses_curated_fallback_on_fetch_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GROQ_ENABLED", "true")
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(
+        "backend.app.services.provider_catalog._fetch_groq_model_ids",
+        lambda: (_ for _ in ()).throw(RuntimeError("network down")),
+    )
+
+    catalog = _build_groq_catalog()
+    model_ids = [model["id"] for model in catalog["models"]]
+
+    assert catalog["enabled"] is True
+    assert catalog["source"] == "curated_fallback"
+    assert "llama-3.3-70b-versatile" in model_ids
+    assert len(model_ids) >= 2

@@ -165,7 +165,7 @@ async def parse_document(
 ) -> ParseResponse:
     try:
         parsed_document = await document_parser.parse_upload(file)
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     use_case_screening = screen_document_for_supported_use_cases(parsed_document)
     use_case_assessment = UseCaseAssessment(

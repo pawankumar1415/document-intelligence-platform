@@ -1,18 +1,34 @@
 from __future__ import annotations
 
 import json
-from typing import Literal
+from typing import Any, Literal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from backend.app.config import env, env_bool, env_json
 
 
-ProviderName = Literal["openai", "groq", "azure_openai"]
+ProviderName = Literal["openai", "groq", "azure_openai", "ollama"]
 
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+OLLAMA_DEFAULT_MODEL = "qwen3:4b"
+OPENAI_FALLBACK_MODELS = (
+    "gpt-4o-mini",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+)
+GROQ_FALLBACK_MODELS = (
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768",
+)
+OLLAMA_FALLBACK_MODELS = (
+    "qwen3:4b",
+    "llama3.2:3b",
+    "gemma3:4b",
+)
 EXCLUDED_MODEL_TERMS = (
     "embedding",
     "embed",
@@ -29,6 +45,7 @@ def get_provider_catalog() -> list[dict[str, object]]:
         _build_openai_catalog(),
         _build_groq_catalog(),
         _build_azure_catalog(),
+        _build_ollama_catalog(),
     ]
 
 
@@ -63,14 +80,14 @@ def _build_openai_catalog() -> dict[str, object]:
         model_ids = _fetch_openai_model_ids()
         source = "live"
     except Exception as exc:
-        model_ids = [default_model]
-        source = "env_fallback"
+        model_ids = _fallback_model_ids("openai", default_model)
+        source = "curated_fallback"
         source_message = str(exc)
 
     models = _curate_models("openai", model_ids, default_model)
     if not models:
         models = [_model_dict("openai", default_model, default_model, True)]
-        source = "env_fallback"
+        source = "curated_fallback"
 
     return {
         "provider": "openai",
@@ -94,14 +111,14 @@ def _build_groq_catalog() -> dict[str, object]:
         model_ids = _fetch_groq_model_ids()
         source = "live"
     except Exception as exc:
-        model_ids = [default_model]
-        source = "env_fallback"
+        model_ids = _fallback_model_ids("groq", default_model)
+        source = "curated_fallback"
         source_message = str(exc)
 
     models = _curate_models("groq", model_ids, default_model)
     if not models:
         models = [_model_dict("groq", default_model, default_model, True)]
-        source = "env_fallback"
+        source = "curated_fallback"
 
     return {
         "provider": "groq",
@@ -154,10 +171,47 @@ def _build_azure_catalog() -> dict[str, object]:
     }
 
 
+def _build_ollama_catalog() -> dict[str, object]:
+    enabled = _ollama_provider_enabled()
+    default_model = env("OLLAMA_CHAT_MODEL", OLLAMA_DEFAULT_MODEL) or OLLAMA_DEFAULT_MODEL
+    if not enabled:
+        return _empty_catalog("ollama", "Ollama", default_model)
+
+    source_message: str | None = None
+    try:
+        model_ids = _fetch_ollama_model_ids()
+        source = "live"
+    except Exception as exc:
+        model_ids = _fallback_model_ids("ollama", default_model)
+        source = "curated_fallback"
+        source_message = str(exc)
+
+    models = _curate_models("ollama", model_ids, default_model)
+    if not models:
+        models = [_model_dict("ollama", default_model, default_model, True)]
+        source = "curated_fallback"
+
+    return {
+        "provider": "ollama",
+        "display_name": "Ollama",
+        "enabled": True,
+        "default_model": _resolve_default_model(default_model, models),
+        "models": models,
+        "source": source,
+        "source_message": source_message,
+    }
+
+
 def _provider_enabled(flag_name: str, key_names: tuple[str, ...]) -> bool:
     if env(flag_name) is not None:
         return env_bool(flag_name, False)
     return all(bool(env(key_name)) for key_name in key_names)
+
+
+def _ollama_provider_enabled() -> bool:
+    if env("OLLAMA_ENABLED") is not None:
+        return env_bool("OLLAMA_ENABLED", True)
+    return True
 
 
 def _empty_catalog(provider: ProviderName, display_name: str, default_model: str) -> dict[str, object]:
@@ -216,12 +270,32 @@ def _fetch_groq_model_ids() -> list[str]:
     return [str(item.get("id", "")).strip() for item in payload.get("data", []) if str(item.get("id", "")).strip()]
 
 
+def _fetch_ollama_model_ids() -> list[str]:
+    base_url = env("OLLAMA_BASE_URL", "http://localhost:11434") or "http://localhost:11434"
+    request = Request(
+        f"{base_url.rstrip('/')}/api/tags",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise RuntimeError("Could not fetch Ollama models. Ensure `ollama serve` is running.") from exc
+
+    models: list[dict[str, Any]] = payload.get("models", [])
+    return [str(item.get("name", "")).strip() for item in models if str(item.get("name", "")).strip()]
+
+
 def _curate_models(provider: ProviderName, model_ids: list[str], default_model: str) -> list[dict[str, object]]:
     explicit_allowlist = env(f"{provider.upper()}_MODEL_ALLOWLIST", "")
     allowed_ids = {item.strip() for item in explicit_allowlist.split(",") if item.strip()}
 
     filtered_ids: list[str] = []
-    for model_id in sorted(set(model_ids)):
+    seen: set[str] = set()
+    for model_id in model_ids:
+        if model_id in seen:
+            continue
+        seen.add(model_id)
         lowered = model_id.lower()
         if allowed_ids and model_id not in allowed_ids:
             continue
@@ -255,3 +329,18 @@ def _model_dict(provider: ProviderName, model_id: str, label: str, is_default: b
         "provider": provider,
         "is_default": is_default,
     }
+
+
+def _fallback_model_ids(provider: ProviderName, default_model: str) -> list[str]:
+    if provider == "openai":
+        curated = list(OPENAI_FALLBACK_MODELS)
+    elif provider == "groq":
+        curated = list(GROQ_FALLBACK_MODELS)
+    elif provider == "ollama":
+        curated = list(OLLAMA_FALLBACK_MODELS)
+    else:
+        curated = []
+
+    if default_model and default_model not in curated:
+        curated.insert(0, default_model)
+    return curated or ([default_model] if default_model else [])

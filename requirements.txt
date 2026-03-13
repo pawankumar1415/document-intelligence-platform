@@ -9,3 +9,5 @@ openai
 groq
 psycopg[binary]
 sentence-transformers
+docling
+rapidocr_onnxruntime
