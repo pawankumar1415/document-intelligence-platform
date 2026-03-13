@@ -15,7 +15,7 @@ const UploadPage = () => {
 
   const handleParse = async () => {
     if (!selectedFile) {
-      setError("Select a .docx or .txt file before parsing.");
+      setError("Select a .docx, .txt, or .pdf file before parsing.");
       return;
     }
 
@@ -63,7 +63,7 @@ const UploadPage = () => {
     <section className="page">
       <div className="section-header">
         <h1>Upload Source Document</h1>
-        <p>Supported now: `.docx` and `.txt`. Parse once, then generate multiple outputs.</p>
+        <p>Supported now: `.docx`, `.txt`, and `.pdf` (Docling OCR). Parse once, then generate multiple outputs.</p>
       </div>
 
       <div className="panel">
@@ -79,7 +79,7 @@ const UploadPage = () => {
           </div>
           <input
             type="file"
-            accept=".docx,.txt"
+            accept=".docx,.txt,.pdf"
             onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
           />
         </label>
@@ -162,6 +162,21 @@ const UploadPage = () => {
               </article>
             ))}
           </div>
+          {parsedDocument.extraction_signals && parsedDocument.extraction_signals.length > 0 && (
+            <>
+              <h3>Detected Business Signals</h3>
+              <div className="section-list">
+                {parsedDocument.extraction_signals.slice(0, 6).map((signal) => (
+                  <article key={signal.name} className="section-card">
+                    <h4>
+                      {signal.name.replaceAll("_", " ")} - score {signal.score}
+                    </h4>
+                    <p>{signal.evidence[0] || "Signal matched based on document content patterns."}</p>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
     </section>

@@ -15,7 +15,7 @@ const DashboardPage = () => {
         <p className="eyebrow">BSBI Consulting Workflow</p>
         <h1>Document-to-Deliverable in Four Steps</h1>
         <p>
-          Upload a `.txt` or `.docx`, extract structure, generate a draft SOW or PPT, and
+          Upload a `.txt`, `.docx`, or `.pdf`, extract structure, generate a draft SOW or PPT, and
           download stakeholder-ready files.
         </p>
         <p style={{ marginTop: "0.35rem", fontSize: "0.86rem" }}>

@@ -55,7 +55,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   const [embeddingUpdateError, setEmbeddingUpdateError] = useState<string | null>(null);
   const [llmProvider, setLlmProvider] = useState<LLMProvider>(() => {
     const raw = localStorage.getItem("llm_provider");
-    if (raw === "openai" || raw === "groq" || raw === "azure_openai") {
+    if (raw === "openai" || raw === "groq" || raw === "azure_openai" || raw === "ollama") {
       return raw;
     }
     return "openai";
@@ -88,7 +88,9 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       setSelectedModels((current) => {
         const next = { ...current };
         for (const entry of enabledProviders) {
-          if (!next[entry.provider]) {
+          const configuredModel = next[entry.provider];
+          const isConfiguredValid = entry.models.some((model) => model.id === configuredModel);
+          if (!configuredModel || !isConfiguredValid) {
             next[entry.provider] = entry.default_model || entry.models[0]?.id || "";
           }
         }

@@ -26,7 +26,7 @@ const GeneratePage = () => {
         <div className="panel empty-state">
           <AlertCircle size={24} />
           <h2>No parsed document available</h2>
-          <p>Upload and parse a `.docx` or `.txt` file first.</p>
+          <p>Upload and parse a `.docx`, `.txt`, or `.pdf` file first.</p>
           <Link className="btn-primary" to="/upload">
             Go To Upload
           </Link>

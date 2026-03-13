@@ -17,9 +17,11 @@ const HUGGINGFACE_MODEL_OPTIONS = [
 
 const OLLAMA_MODEL_OPTIONS = [
   { id: "qwen3-embedding:4b", label: "qwen3-embedding:4b", dimension: 2560 },
+  { id: "qwen3-embedding:0.6b", label: "qwen3-embedding:0.6b", dimension: 1024 },
   { id: "nomic-embed-text", label: "nomic-embed-text", dimension: 768 },
   { id: "mxbai-embed-large", label: "mxbai-embed-large", dimension: 1024 },
   { id: "bge-m3", label: "bge-m3", dimension: 1024 },
+  { id: "all-minilm", label: "all-minilm", dimension: 384 },
 ];
 
 const ModelControlBar = () => {
@@ -97,6 +99,14 @@ const ModelControlBar = () => {
 
   const modelSource = activeProvider?.source ?? "disabled";
   const modelSourceMessage = activeProvider?.source_message;
+  const modelSourceLabel =
+    modelSource === "live"
+      ? "Live"
+      : modelSource === "curated_fallback"
+        ? "Curated fallback"
+        : modelSource === "env_fallback"
+          ? "Fallback"
+          : modelSource;
 
   return (
     <section className="model-control-bar panel">
@@ -156,7 +166,7 @@ const ModelControlBar = () => {
           {showEmbeddingSettings ? "Hide Embedding Settings" : "Show Embedding Settings"}
         </button>
         <span className={`provider-source ${modelSource}`}>
-          Provider catalog: {modelSource === "live" ? "Live" : modelSource === "env_fallback" ? "Fallback" : modelSource}
+          Provider catalog: {modelSourceLabel}
         </span>
       </div>
 
@@ -229,7 +239,9 @@ const ModelControlBar = () => {
         Switching embedding backend/model affects new parse jobs and can fail if pgvector dimension mismatches
         existing data.
       </p>
-      {(activeProvider?.source === "env_fallback" || providerCatalogError) && (
+      {(activeProvider?.source === "env_fallback" ||
+        activeProvider?.source === "curated_fallback" ||
+        providerCatalogError) && (
         <div className="message error">
           <span>
             Live model fetch is unavailable for this provider right now. Showing fallback model list.

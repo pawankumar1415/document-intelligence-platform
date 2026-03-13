@@ -5,12 +5,13 @@ export type ParsedSection = {
 
 export type ParsedDocument = {
   filename: string;
-  file_type: "docx" | "txt";
+  file_type: "docx" | "txt" | "pdf";
   title: string;
   text: string;
   sections: ParsedSection[];
   word_count: number;
   paragraph_count: number;
+  extraction_signals?: ExtractionSignal[];
 };
 
 export type ParseResponse = {
@@ -25,6 +26,12 @@ export type UseCaseAssessment = {
   matched_use_cases: string[];
   confidence: number;
   reasons: string[];
+};
+
+export type ExtractionSignal = {
+  name: string;
+  score: number;
+  evidence: string[];
 };
 
 export type DocumentInput = {
@@ -53,7 +60,7 @@ export type GeneratePptxRequest = {
   llm_model?: string;
 };
 
-export type LLMProvider = "openai" | "groq" | "azure_openai";
+export type LLMProvider = "openai" | "groq" | "azure_openai" | "ollama";
 
 export type GeneratedSection = {
   title: string;
