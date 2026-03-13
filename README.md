@@ -5,7 +5,8 @@ BSBI Document Intelligence turns uploaded source documents into branded consulti
 ## What The Product Does
 
 - Auth-first web app with React + Vite + TypeScript frontend and FastAPI backend
-- Upload and parse `docx` and `txt` source files
+- Upload and parse `docx`, `txt`, and `pdf` source files
+- Screen uploaded content against supported use cases before generation
 - Chunk and index parsed content into PostgreSQL `pgvector`
 - Generate branded deliverables using a selectable LLM provider and model
 - Download generated `docx` and `pptx` artifacts
@@ -15,7 +16,7 @@ BSBI Document Intelligence turns uploaded source documents into branded consulti
 ```mermaid
 flowchart LR
     A[Login] --> B[Create or Reuse Project]
-    B --> C[Upload docx/txt]
+    B --> C[Upload docx/txt/pdf]
     C --> D[Parse Document]
     D --> E[Chunk Text]
     E --> F[Embeddings: Hugging Face or Ollama]
@@ -41,9 +42,11 @@ flowchart LR
 - `SQLite` for users, sessions, projects, documents, artifacts
 - `PostgreSQL + pgvector` for vector search
 - Embeddings: local `sentence-transformers` or local `Ollama /api/embed`
+- PDF extraction: `Docling` with OCR + table structure
 - Switchable generation providers:
   - `OpenAI`
   - `Groq`
+  - `Ollama`
   - `Azure OpenAI`
 
 ### Document Outputs
@@ -62,7 +65,7 @@ flowchart LR
 | Embeddings | `huggingface_local` or `ollama` | Configurable via `EMBEDDING_BACKEND` |
 | Hugging Face options | `nomic-ai/nomic-embed-text-v1.5`, `BAAI/bge-m3`, `intfloat/multilingual-e5-large-instruct` | Local sentence-transformers path |
 | Ollama option | e.g. `qwen3-embedding:4b` | Uses local Ollama `/api/embed` |
-| Generation Providers | OpenAI, Groq, Azure OpenAI | Frontend-selectable |
+| Generation Providers | OpenAI, Groq, Ollama, Azure OpenAI | Frontend-selectable |
 | Azure Model Selection | Deployment names | Azure inference is deployment-based |
 
 ## Embedding Options
@@ -124,19 +127,30 @@ EMBEDDING_BACKEND=huggingface_local
 EMBEDDING_MODEL_ID=nomic-ai/nomic-embed-text-v1.5
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_EMBED_MODEL=qwen3-embedding:4b
+OLLAMA_EMBED_MODEL_ALLOWLIST=
+DOCLING_OCR_ENGINE=rapidocr
+DOCLING_FORCE_FULL_PAGE_OCR=false
 PGVECTOR_DSN=postgresql://postgres:postgres@localhost:5432/document_intelligence
+VECTOR_STORE_RESET_ON_MISMATCH=false
 OPENAI_ENABLED=true
 OPENAI_API_KEY=...
 OPENAI_CHAT_MODEL=gpt-4o-mini
 GROQ_ENABLED=true
 GROQ_API_KEY=...
 GROQ_CHAT_MODEL=llama-3.3-70b-versatile
+OLLAMA_ENABLED=true
+OLLAMA_CHAT_MODEL=qwen3:4b
 AZURE_OPENAI_ENABLED=false
 AZURE_OPENAI_API_KEY=...
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
 AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o-mini
 AZURE_OPENAI_CHAT_DEPLOYMENTS_JSON=[{"id":"gpt-4o-mini","label":"GPT-4o Mini Deployment"}]
 ```
+
+Vector-store mismatch note:
+- If you switch embedding model/backend and hit a startup error like `Configured embedding dimension does not match`, set:
+  - `VECTOR_STORE_RESET_ON_MISMATCH=true`
+- This auto-clears the local vector index (`document_chunks`) and re-initializes with the new embedding dimension.
 
 Security note:
 - `.env` is ignored by git
@@ -207,7 +221,7 @@ uvicorn backend.app.main:app --reload
 
 6. Start frontend (`npm run dev`) and run the functional flow:
 - Login/register
-- Upload a `.txt` or `.docx` file and parse
+- Upload a `.txt`, `.docx`, or `.pdf` file and parse
 - Generate SOW
 - Generate PPT
 - Download artifacts
@@ -218,10 +232,34 @@ uvicorn backend.app.main:app --reload
 .\venv\Scripts\python.exe -m pytest -q backend\tests
 ```
 
+## Recommended Local Ollama Models (Balanced For Local Machines)
+
+LLM:
+- `qwen3:4b`
+- `llama3.2:3b`
+- `gemma3:4b`
+
+Embeddings:
+- `qwen3-embedding:0.6b` (lighter local default)
+- `nomic-embed-text`
+- `mxbai-embed-large`
+
+Suggested pull commands:
+
+```bash
+ollama pull qwen3:4b
+ollama pull llama3.2:3b
+ollama pull gemma3:4b
+ollama pull qwen3-embedding:0.6b
+ollama pull nomic-embed-text
+ollama pull mxbai-embed-large
+```
+
 ## Provider And Model Selection
 
 - The frontend asks the backend for available provider/model choices through `GET /api/v1/providers/models`
 - `OpenAI` and `Groq` models are fetched dynamically and filtered to usable chat models
+- `Ollama` models are fetched from local `OLLAMA_BASE_URL/api/tags` and filtered to chat-capable models
 - `Azure OpenAI` exposes configured deployment names from env, not raw upstream model names
 - Generated requests carry both `llm_provider` and `llm_model`
 
@@ -269,7 +307,7 @@ Included now:
 - Branded SOW and PPT generation
 
 Not included yet:
-- `pdf`, `xlsx`, or image OCR ingestion
+- `xlsx` and image ingestion
 - background job queue
 - enterprise SSO
 - collaborative editing
