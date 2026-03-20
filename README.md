@@ -64,7 +64,7 @@ flowchart LR
 | Vector DB | PostgreSQL + pgvector | Local Docker setup recommended on Windows |
 | Embeddings | `huggingface_local` or `ollama` | Configurable via `EMBEDDING_BACKEND` |
 | Hugging Face options | `nomic-ai/nomic-embed-text-v1.5`, `BAAI/bge-m3`, `intfloat/multilingual-e5-large-instruct` | Local sentence-transformers path |
-| Ollama option | e.g. `qwen3-embedding:4b` | Uses local Ollama `/api/embed` |
+| Ollama option | e.g. `qwen3-embedding:0.6b` | Uses local Ollama `/api/embed` |
 | Generation Providers | OpenAI, Groq, Ollama, Azure OpenAI | Frontend-selectable |
 | Azure Model Selection | Deployment names | Azure inference is deployment-based |
 
@@ -78,12 +78,12 @@ Hugging Face (`EMBEDDING_BACKEND=huggingface_local`):
 - `intfloat/multilingual-e5-large-instruct`
 
 Ollama (`EMBEDDING_BACKEND=ollama`):
-- Use any local embedding model exposed by Ollama, for example `qwen3-embedding:4b`
+- Use any local embedding model exposed by Ollama, for example `qwen3-embedding:0.6b`
 
 Default recommendation:
 - Use `nomic-ai/nomic-embed-text-v1.5` for the first local deployment
 - Move to `BAAI/bge-m3` if multilingual retrieval quality becomes the priority
-- Use `qwen3-embedding:4b` if you prefer Ollama-managed local embeddings
+- Use `qwen3-embedding:0.6b` on low-memory GPUs and move to `qwen3-embedding:4b` only if performance is acceptable
 
 Operational note:
 - The first local embedding request downloads the Hugging Face model to the local cache, so initial startup or first parse can be noticeably slower
@@ -126,7 +126,7 @@ DEFAULT_LLM_PROVIDER=openai
 EMBEDDING_BACKEND=huggingface_local
 EMBEDDING_MODEL_ID=nomic-ai/nomic-embed-text-v1.5
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_EMBED_MODEL=qwen3-embedding:4b
+OLLAMA_EMBED_MODEL=qwen3-embedding:0.6b
 OLLAMA_EMBED_MODEL_ALLOWLIST=
 DOCLING_OCR_ENGINE=rapidocr
 DOCLING_FORCE_FULL_PAGE_OCR=false
@@ -139,7 +139,12 @@ GROQ_ENABLED=true
 GROQ_API_KEY=...
 GROQ_CHAT_MODEL=llama-3.3-70b-versatile
 OLLAMA_ENABLED=true
-OLLAMA_CHAT_MODEL=qwen3:4b
+OLLAMA_CHAT_MODEL=qwen3:0.6b
+OLLAMA_DISABLE_THINK=true
+OLLAMA_CHAT_NUM_PREDICT=280
+OLLAMA_CHAT_NUM_CTX=3072
+OLLAMA_CHAT_TIMEOUT_SECONDS=90
+OLLAMA_KEEP_ALIVE=20m
 AZURE_OPENAI_ENABLED=false
 AZURE_OPENAI_API_KEY=...
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
@@ -196,7 +201,7 @@ Both routes are login-first.
 
 ```bash
 ollama serve
-ollama pull qwen3-embedding:4b
+ollama pull qwen3-embedding:0.6b
 ```
 
 2. Set embedding backend to Ollama in `.env`:
@@ -204,7 +209,7 @@ ollama pull qwen3-embedding:4b
 ```env
 EMBEDDING_BACKEND=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_EMBED_MODEL=qwen3-embedding:4b
+OLLAMA_EMBED_MODEL=qwen3-embedding:0.6b
 ```
 
 3. Ensure PostgreSQL + pgvector is running and reachable from `PGVECTOR_DSN`.
@@ -235,9 +240,9 @@ uvicorn backend.app.main:app --reload
 ## Recommended Local Ollama Models (Balanced For Local Machines)
 
 LLM:
-- `qwen3:4b`
-- `llama3.2:3b`
-- `gemma3:4b`
+- `qwen3:0.6b`
+- `llama3.2:1b`
+- `gemma3:1b`
 
 Embeddings:
 - `qwen3-embedding:0.6b` (lighter local default)
@@ -247,9 +252,9 @@ Embeddings:
 Suggested pull commands:
 
 ```bash
-ollama pull qwen3:4b
-ollama pull llama3.2:3b
-ollama pull gemma3:4b
+ollama pull qwen3:0.6b
+ollama pull llama3.2:1b
+ollama pull gemma3:1b
 ollama pull qwen3-embedding:0.6b
 ollama pull nomic-embed-text
 ollama pull mxbai-embed-large

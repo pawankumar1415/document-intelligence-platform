@@ -11,3 +11,4 @@ psycopg[binary]
 sentence-transformers
 docling
 rapidocr_onnxruntime
+einops
