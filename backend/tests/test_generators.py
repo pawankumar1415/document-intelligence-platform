@@ -59,7 +59,19 @@ def test_sow_generator_writes_docx() -> None:
     output_path = Path(result.file_path)
     assert output_path.exists()
     assert result.sections
-    assert result.sections[1].title == "Scope of Work"
+    titles = {section.title for section in result.sections}
+    # New structure has 8 sections + sign-off added in docx (sign-off is docx-only, not in sections list)
+    assert "Executive Summary" in titles
+    assert "Scope of Work" in titles
+    assert "Deliverables" in titles
+    assert "Timeline and Milestones" in titles
+    assert "Assumptions and Dependencies" in titles
+    assert len(result.sections) >= 8
+
+    # Verify docx contains tables (deliverables + timeline + metadata + sign-off)
+    from docx import Document
+    doc = Document(str(output_path))
+    assert len(doc.tables) >= 2, f"Expected at least 2 tables, got {len(doc.tables)}"
 
 
 def test_ppt_generator_writes_pptx() -> None:
@@ -75,4 +87,33 @@ def test_ppt_generator_writes_pptx() -> None:
     output_path = Path(result.file_path)
     assert output_path.exists()
     assert result.slides
-    assert result.slides[0].title == "Executive Summary"
+    # First slide from data should be the section divider
+    assert result.slides[0].slide_type == "section_divider"
+    assert result.slides[0].title == "Executive Overview"
+    # Should have a closing slide
+    closing_slides = [s for s in result.slides if s.slide_type == "closing"]
+    assert len(closing_slides) >= 1
+    # Should have at least one two-column slide
+    two_col_slides = [s for s in result.slides if s.slide_type == "two_column"]
+    assert len(two_col_slides) >= 1
+
+
+def test_ppt_generator_has_accent_shapes() -> None:
+    """Verify pptx output has accent bar shapes on content slides."""
+    from pptx import Presentation
+
+    generator = PptGenerator()
+    result = generator.generate(
+        GeneratePptxRequest(
+            deck_title="Test Deck",
+            subtitle="Accent Bar Test",
+            source_document=sample_document(),
+            max_content_slides=4,
+        )
+    )
+
+    prs = Presentation(result.file_path)
+    # At least some slides should have shapes (accent bars, text boxes)
+    total_shapes = sum(len(slide.shapes) for slide in prs.slides)
+    # Each slide has at minimum: logo + accent bar + title textbox = 3 shapes
+    assert total_shapes >= len(prs.slides) * 2

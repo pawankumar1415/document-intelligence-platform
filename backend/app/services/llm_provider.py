@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from backend.app.config import env, env_required
+from backend.app.config import env, env_bool, env_required
 from backend.app.services.provider_catalog import resolve_chat_model
 
 
@@ -45,6 +46,12 @@ def _generate_json_with_ollama(
     user_prompt: str,
     temperature: float,
 ) -> dict:
+    timeout_seconds = _env_int("OLLAMA_CHAT_TIMEOUT_SECONDS", 90)
+    num_predict = _env_int("OLLAMA_CHAT_NUM_PREDICT", 280)
+    num_ctx = _env_int("OLLAMA_CHAT_NUM_CTX", 3072)
+    keep_alive = env("OLLAMA_KEEP_ALIVE", "20m") or "20m"
+    disable_think = env_bool("OLLAMA_DISABLE_THINK", True)
+
     payload = json.dumps(
         {
             "model": model,
@@ -54,7 +61,13 @@ def _generate_json_with_ollama(
             ],
             "stream": False,
             "format": "json",
-            "options": {"temperature": temperature},
+            "keep_alive": keep_alive,
+            "options": {
+                "temperature": temperature,
+                "num_predict": num_predict,
+                "num_ctx": num_ctx,
+            },
+            "think": not disable_think,
         }
     ).encode("utf-8")
     request = Request(
@@ -63,12 +76,14 @@ def _generate_json_with_ollama(
         data=payload,
     )
     try:
-        with urlopen(request, timeout=120) as response:
+        with urlopen(request, timeout=timeout_seconds) as response:
             response_payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         raise RuntimeError(f"Ollama chat request failed with status {exc.code}.") from exc
     except (URLError, TimeoutError) as exc:
-        raise RuntimeError("Could not connect to Ollama. Ensure `ollama serve` is running.") from exc
+        raise RuntimeError(
+            "Could not connect to Ollama or request timed out. Ensure `ollama serve` is running and use a smaller model."
+        ) from exc
 
     message = response_payload.get("message", {})
     content = message.get("content", "") if isinstance(message, dict) else response_payload.get("response", "")
@@ -76,11 +91,7 @@ def _generate_json_with_ollama(
     if not content_text:
         return {}
 
-    try:
-        return json.loads(content_text)
-    except json.JSONDecodeError:
-        # Fall back to safe object to avoid crashing generation on malformed provider output.
-        return {"raw": content_text}
+    return _extract_json_payload(content_text)
 
 
 def generate_json_object(
@@ -143,3 +154,26 @@ def generate_json_object(
     )
     text = response.choices[0].message.content or "{}"
     return json.loads(text)
+
+
+def _extract_json_payload(text: str) -> dict:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            return {"raw": text}
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return {"raw": text}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = env(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default

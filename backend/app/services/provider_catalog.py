@@ -13,7 +13,7 @@ ProviderName = Literal["openai", "groq", "azure_openai", "ollama"]
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
-OLLAMA_DEFAULT_MODEL = "qwen3:4b"
+OLLAMA_DEFAULT_MODEL = "qwen3:0.6b"
 OPENAI_FALLBACK_MODELS = (
     "gpt-4o-mini",
     "gpt-4.1-mini",
@@ -25,9 +25,9 @@ GROQ_FALLBACK_MODELS = (
     "mixtral-8x7b-32768",
 )
 OLLAMA_FALLBACK_MODELS = (
-    "qwen3:4b",
-    "llama3.2:3b",
-    "gemma3:4b",
+    "qwen3:0.6b",
+    "llama3.2:1b",
+    "gemma3:1b",
 )
 EXCLUDED_MODEL_TERMS = (
     "embedding",

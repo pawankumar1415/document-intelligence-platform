@@ -64,7 +64,7 @@ class GeneratePptxRequest(BaseModel):
     deck_title: str = Field(..., min_length=1)
     subtitle: str | None = None
     source_document: DocumentInput
-    max_content_slides: int = Field(default=4, ge=2, le=8)
+    max_content_slides: int = Field(default=6, ge=3, le=12)
     project_id: int | None = None
     llm_provider: LLMProvider = "openai"
     llm_model: str | None = None
@@ -74,11 +74,18 @@ class GeneratedSection(BaseModel):
     title: str
     paragraphs: list[str] = Field(default_factory=list)
     bullets: list[str] = Field(default_factory=list)
+    table_rows: list[list[str]] = Field(default_factory=list)
+
+
+SlideType = Literal["content", "section_divider", "metrics", "two_column", "closing"]
 
 
 class GeneratedSlide(BaseModel):
     title: str
     bullets: list[str] = Field(default_factory=list)
+    slide_type: SlideType = "content"
+    left_column: list[str] = Field(default_factory=list)
+    right_column: list[str] = Field(default_factory=list)
 
 
 class GenerateResult(BaseModel):

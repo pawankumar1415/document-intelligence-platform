@@ -65,7 +65,7 @@ def configured_embedding_model_id() -> str:
     if _runtime_embedding_model_id:
         return _runtime_embedding_model_id
     if backend == "ollama":
-        return env("OLLAMA_EMBED_MODEL", "qwen3-embedding:4b") or "qwen3-embedding:4b"
+        return env("OLLAMA_EMBED_MODEL", "qwen3-embedding:0.6b") or "qwen3-embedding:0.6b"
     return env("EMBEDDING_MODEL_ID", "nomic-ai/nomic-embed-text-v1.5") or "nomic-ai/nomic-embed-text-v1.5"
 
 
