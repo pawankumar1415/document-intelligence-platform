@@ -16,8 +16,8 @@ const HUGGINGFACE_MODEL_OPTIONS = [
 ];
 
 const OLLAMA_MODEL_OPTIONS = [
-  { id: "qwen3-embedding:4b", label: "qwen3-embedding:4b", dimension: 2560 },
   { id: "qwen3-embedding:0.6b", label: "qwen3-embedding:0.6b", dimension: 1024 },
+  { id: "qwen3-embedding:4b", label: "qwen3-embedding:4b", dimension: 2560 },
   { id: "nomic-embed-text", label: "nomic-embed-text", dimension: 768 },
   { id: "mxbai-embed-large", label: "mxbai-embed-large", dimension: 1024 },
   { id: "bge-m3", label: "bge-m3", dimension: 1024 },

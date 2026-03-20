@@ -13,7 +13,7 @@ const GeneratePage = () => {
   const [assumptions, setAssumptions] = useState("");
   const [deckTitle, setDeckTitle] = useState("BSBI Document Intelligence Brief");
   const [subtitle, setSubtitle] = useState("Generated from uploaded document");
-  const [maxSlides, setMaxSlides] = useState(4);
+  const [maxSlides, setMaxSlides] = useState(6);
 
   const [loadingSow, setLoadingSow] = useState(false);
   const [loadingPpt, setLoadingPpt] = useState(false);
@@ -177,16 +177,16 @@ const GeneratePage = () => {
             Max content slides
             <input
               type="number"
-              min={2}
-              max={8}
+              min={3}
+              max={12}
               value={maxSlides}
               onChange={(event) => {
                 const value = Number(event.target.value);
                 if (Number.isNaN(value)) {
-                  setMaxSlides(4);
+                  setMaxSlides(6);
                   return;
                 }
-                setMaxSlides(Math.min(8, Math.max(2, value)));
+                setMaxSlides(Math.min(12, Math.max(3, value)));
               }}
             />
           </label>
