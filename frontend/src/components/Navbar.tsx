@@ -1,14 +1,12 @@
-import { Menu, X } from "lucide-react";
+import { LayoutDashboard, Library, LogOut, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
 
 const links = [
-  { to: "/dashboard", label: "Dashboard" },
-  { to: "/upload", label: "Upload" },
-  { to: "/generate", label: "Generate" },
-  { to: "/outputs", label: "Outputs" },
+  { to: "/dashboard", label: "Studio", Icon: LayoutDashboard },
+  { to: "/outputs", label: "Library", Icon: Library },
 ];
 
 const navClassName = ({ isActive }: { isActive: boolean }) =>
@@ -24,57 +22,67 @@ const Navbar = () => {
     navigate("/login", { replace: true });
   };
 
+  const initials = user?.email
+    ? user.email.slice(0, 2).toUpperCase()
+    : "??";
+
   return (
     <header className="top-nav">
       <div className="top-nav-inner">
         <NavLink className="brand" to="/dashboard" onClick={() => setMobileOpen(false)}>
-          <img src="/bsbi-logo.jpeg" alt="BSBI logo" className="brand-logo" />
+          <img src="/bsbi-logo.jpeg" alt="BSBI" className="brand-logo" />
           <div className="brand-copy">
-            <span className="brand-title">BSBI Intelligence Studio</span>
+            <span className="brand-title">BSBI Intelligence</span>
             <span className="brand-subtitle">Document Intelligence Platform</span>
           </div>
         </NavLink>
 
         <nav className="desktop-nav">
-          {links.map((link) => (
-            <NavLink key={link.to} to={link.to} className={navClassName}>
-              {link.label}
+          {links.map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to} className={navClassName}>
+              <Icon size={14} />
+              {label}
             </NavLink>
           ))}
         </nav>
 
         <div className="top-nav-controls">
-          <span className="user-chip">{user?.email}</span>
-          <button className="logout-btn" type="button" onClick={handleLogout}>
-            Logout
+          {user?.email && (
+            <div className="user-chip">
+              <span className="user-avatar">{initials}</span>
+              <span className="user-email">{user.email}</span>
+            </div>
+          )}
+          <button className="logout-btn" type="button" onClick={handleLogout} title="Sign out">
+            <LogOut size={14} />
+            <span>Logout</span>
           </button>
         </div>
 
         <button
           className="mobile-toggle"
           type="button"
-          onClick={() => setMobileOpen((open) => !open)}
+          onClick={() => setMobileOpen((o) => !o)}
           aria-label="Toggle navigation"
         >
-          {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+          {mobileOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
       </div>
 
       {mobileOpen && (
         <nav className="mobile-nav">
-          {links.map((link) => (
+          {links.map(({ to, label, Icon }) => (
             <NavLink
-              key={link.to}
-              to={link.to}
+              key={to}
+              to={to}
               className={navClassName}
               onClick={() => setMobileOpen(false)}
             >
-              {link.label}
+              <Icon size={14} /> {label}
             </NavLink>
           ))}
-          <span className="mobile-provider-label">Model controls are available below the navigation bar.</span>
-          <button className="logout-btn" type="button" onClick={handleLogout}>
-            Logout
+          <button className="logout-btn mobile-logout" type="button" onClick={handleLogout}>
+            <LogOut size={14} /> Logout
           </button>
         </nav>
       )}

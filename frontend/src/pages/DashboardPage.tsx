@@ -1,12 +1,14 @@
 import {
   AlertCircle,
   CheckCircle2,
+  Cpu,
   Download,
   FileCheck2,
   FilePlus2,
   FileText,
   Loader2,
   Presentation,
+  RotateCcw,
   UploadCloud,
   WandSparkles,
 } from "lucide-react";
@@ -15,6 +17,8 @@ import { useState } from "react";
 import { useAppState } from "../context/AppStateContext";
 import { ApiError, downloadArtifact, generatePptx, generateSow, parseDocument } from "../services/api";
 import type { UseCaseAssessment } from "../types/app";
+
+type GenTab = "sow" | "ppt";
 
 const DashboardPage = () => {
   const {
@@ -36,6 +40,7 @@ const DashboardPage = () => {
   const [subtitle, setSubtitle] = useState("Generated from uploaded document");
   const [assumptions, setAssumptions] = useState("");
   const [maxSlides, setMaxSlides] = useState(6);
+  const [activeTab, setActiveTab] = useState<GenTab>("sow");
 
   const [parseLoading, setParseLoading] = useState(false);
   const [sowLoading, setSowLoading] = useState(false);
@@ -46,21 +51,24 @@ const DashboardPage = () => {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [useCaseAssessment, setUseCaseAssessment] = useState<UseCaseAssessment | null>(null);
 
-  const sowCount = outputs.filter((item) => item.artifact_type === "sow").length;
-  const pptCount = outputs.filter((item) => item.artifact_type === "pptx").length;
+  const sowCount = outputs.filter((o) => o.artifact_type === "sow").length;
+  const pptCount = outputs.filter((o) => o.artifact_type === "pptx").length;
+
+  const handleFileChange = (file: File | null) => {
+    setSelectedFile(file);
+    setParseError(null);
+  };
 
   const handleParse = async () => {
     if (!selectedFile) {
       setParseError("Select a .docx, .txt, or .pdf file before parsing.");
       return;
     }
-
     setParseLoading(true);
     setParseError(null);
     setGenerateError(null);
     setStatusMessage(null);
     setUseCaseAssessment(null);
-
     try {
       const response = await parseDocument(selectedFile, {
         token,
@@ -69,26 +77,16 @@ const DashboardPage = () => {
         projectId: projectId ?? undefined,
       });
       setParsedDocument(response.document);
-      if (typeof response.project_id === "number") {
-        setProjectId(response.project_id);
-      }
+      if (typeof response.project_id === "number") setProjectId(response.project_id);
       setUseCaseAssessment(response.use_case_assessment ?? null);
-      setStatusMessage("Document parsed. You can generate SOW and PPT from this page.");
-    } catch (requestError) {
-      if (requestError instanceof ApiError) {
-        if (requestError.status === 422 && requestError.payload?.code === "unsupported_document") {
-          setParseError(
-            requestError.payload.message ||
-              "This document does not match the currently supported generation use cases.",
-          );
-          setUseCaseAssessment(requestError.payload.assessment ?? null);
-          setParsedDocument(null);
-        } else {
-          setParseError(requestError.message || "Could not parse the uploaded document.");
-        }
+      setStatusMessage(`"${response.document.title}" parsed — ${response.document.word_count} words, ${response.document.sections.length} sections.`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 422 && err.payload?.code === "unsupported_document") {
+        setParseError(err.payload.message || "This document type is not supported.");
+        setUseCaseAssessment(err.payload.assessment ?? null);
+        setParsedDocument(null);
       } else {
-        const message = requestError instanceof Error ? requestError.message : "Could not parse the uploaded document.";
-        setParseError(message);
+        setParseError(err instanceof Error ? err.message : "Could not parse the document.");
       }
     } finally {
       setParseLoading(false);
@@ -96,10 +94,7 @@ const DashboardPage = () => {
   };
 
   const handleGenerateSow = async () => {
-    if (!parsedDocument) {
-      setGenerateError("Parse a document before generating outputs.");
-      return;
-    }
+    if (!parsedDocument) return;
     setSowLoading(true);
     setGenerateError(null);
     setStatusMessage(null);
@@ -108,36 +103,25 @@ const DashboardPage = () => {
         {
           client_name: clientName,
           project_name: projectName,
-          source_document: {
-            title: parsedDocument.title,
-            text: parsedDocument.text,
-            sections: parsedDocument.sections,
-          },
+          source_document: { title: parsedDocument.title, text: parsedDocument.text, sections: parsedDocument.sections },
           project_id: projectId ?? undefined,
           llm_provider: llmProvider,
           llm_model: llmModel || undefined,
-          assumptions: assumptions
-            .split("\n")
-            .map((line) => line.trim())
-            .filter(Boolean),
+          assumptions: assumptions.split("\n").map((l) => l.trim()).filter(Boolean),
         },
         { token },
       );
       addOutput(response);
       setStatusMessage("SOW generated successfully.");
-    } catch (requestError) {
-      const message = requestError instanceof Error ? requestError.message : "Could not generate SOW.";
-      setGenerateError(message);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "Could not generate SOW.");
     } finally {
       setSowLoading(false);
     }
   };
 
   const handleGeneratePpt = async () => {
-    if (!parsedDocument) {
-      setGenerateError("Parse a document before generating outputs.");
-      return;
-    }
+    if (!parsedDocument) return;
     setPptLoading(true);
     setGenerateError(null);
     setStatusMessage(null);
@@ -146,11 +130,7 @@ const DashboardPage = () => {
         {
           deck_title: deckTitle,
           subtitle,
-          source_document: {
-            title: parsedDocument.title,
-            text: parsedDocument.text,
-            sections: parsedDocument.sections,
-          },
+          source_document: { title: parsedDocument.title, text: parsedDocument.text, sections: parsedDocument.sections },
           project_id: projectId ?? undefined,
           llm_provider: llmProvider,
           llm_model: llmModel || undefined,
@@ -159,10 +139,9 @@ const DashboardPage = () => {
         { token },
       );
       addOutput(response);
-      setStatusMessage("PPT generated successfully.");
-    } catch (requestError) {
-      const message = requestError instanceof Error ? requestError.message : "Could not generate PPT.";
-      setGenerateError(message);
+      setStatusMessage("Presentation generated successfully.");
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "Could not generate PPT.");
     } finally {
       setPptLoading(false);
     }
@@ -172,232 +151,306 @@ const DashboardPage = () => {
     setDownloadError(null);
     try {
       await downloadArtifact(downloadUrl, artifactName, { token });
-    } catch (requestError) {
-      const message = requestError instanceof Error ? requestError.message : "Download failed.";
-      setDownloadError(message);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Download failed.");
     }
   };
 
+  const anyError = parseError || generateError || downloadError;
+
   return (
     <section className="page">
-      <div className="hero">
-        <p className="eyebrow">BSBI Studio Workflow</p>
-        <h1>Upload, Parse, Generate, and Download From One Screen</h1>
-        <p>No route-hopping. Complete the full document-to-deliverable flow in this studio view.</p>
-        <p style={{ marginTop: "0.35rem", fontSize: "0.86rem" }}>
-          Runtime: <strong>{llmProvider}</strong>
-          {llmModel ? (
+      {/* ── Status bar ── */}
+      <div className="studio-bar">
+        <div className="studio-bar-doc">
+          {parsedDocument ? (
             <>
-              {" "}
-              / <strong>{llmModel}</strong>
+              <FileCheck2 size={14} className="studio-bar-icon ok" />
+              <span className="studio-bar-label">
+                <strong>{parsedDocument.title}</strong>
+                <span className="studio-bar-meta">{parsedDocument.file_type?.toUpperCase()} · {parsedDocument.word_count} words · {parsedDocument.sections.length} sections</span>
+              </span>
             </>
-          ) : null}
-        </p>
+          ) : (
+            <>
+              <UploadCloud size={14} className="studio-bar-icon dim" />
+              <span className="studio-bar-label dim">No document loaded — upload one to start</span>
+            </>
+          )}
+        </div>
+        <div className="studio-bar-ai">
+          <Cpu size={12} />
+          <span>{llmProvider}</span>
+          {llmModel && <><span className="studio-bar-sep">·</span><span className="studio-bar-model">{llmModel}</span></>}
+        </div>
       </div>
 
+      {/* ── Feedback ── */}
       {statusMessage && (
         <div className="message success">
-          <CheckCircle2 size={16} />
+          <CheckCircle2 size={15} />
           <span>{statusMessage}</span>
         </div>
       )}
-      {(parseError || generateError || downloadError) && (
+      {anyError && (
         <div className="message error">
-          <AlertCircle size={16} />
-          <span>{parseError || generateError || downloadError}</span>
+          <AlertCircle size={15} />
+          <span>{anyError}</span>
         </div>
       )}
 
-      <div className="workflow-grid">
-        <article className="panel workflow-card">
-          <div className="workflow-card-head">
-            <span className="workflow-step">Step 01</span>
-            <h2>
-              <UploadCloud size={18} /> Upload and Parse
-            </h2>
-          </div>
-          <label>
-            Project name
-            <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
-          </label>
-          <label className="file-drop">
-            <UploadCloud size={24} />
+      {/* ── Studio layout ── */}
+      <div className="studio-layout">
+
+        {/* ════ LEFT — Document ════ */}
+        <article className="panel studio-doc">
+          <header className="step-header">
+            <span className="step-badge">01</span>
             <div>
-              <strong>Choose source document</strong>
-              <p>Supported: `.docx`, `.txt`, `.pdf`.</p>
+              <h2>Source Document</h2>
+              <p className="step-desc">Upload a project brief, proposal, or requirements doc</p>
             </div>
-            <input
-              type="file"
-              accept=".docx,.txt,.pdf"
-              onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
-            />
+          </header>
+
+          <label className="field-label">
+            Project name
+            <input value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="e.g. BSBI Discovery Project" />
           </label>
-          <div className="inline-meta">
-            <span>{selectedFile ? selectedFile.name : "No file selected"}</span>
-            <button className="btn-primary" type="button" onClick={handleParse} disabled={parseLoading}>
-              {parseLoading ? (
-                <>
-                  <Loader2 size={16} className="spin" /> Parsing...
-                </>
-              ) : (
-                "Parse Document"
+
+          {!parsedDocument ? (
+            <>
+              <label className="dropzone">
+                <input
+                  type="file"
+                  accept=".docx,.txt,.pdf"
+                  onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
+                />
+                <UploadCloud size={36} strokeWidth={1.5} className="dropzone-icon" />
+                <strong>Drop file here or click to browse</strong>
+                <span>.docx · .txt · .pdf supported</span>
+              </label>
+
+              {selectedFile && (
+                <div className="selected-file-row">
+                  <span className="selected-file-name">
+                    <FileText size={14} />
+                    {selectedFile.name}
+                  </span>
+                  <button className="btn-primary" type="button" onClick={handleParse} disabled={parseLoading}>
+                    {parseLoading ? <><Loader2 size={14} className="spin" /> Parsing…</> : "Parse Document"}
+                  </button>
+                </div>
               )}
-            </button>
-          </div>
+
+              {!selectedFile && (
+                <p className="dropzone-hint">Select a file above, then click Parse to extract content.</p>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="doc-loaded-card">
+                <div className="doc-loaded-icon">
+                  <FileCheck2 size={22} />
+                </div>
+                <div className="doc-loaded-info">
+                  <h3>{parsedDocument.title}</h3>
+                  <p>{parsedDocument.file_type?.toUpperCase()} · {parsedDocument.filename}</p>
+                </div>
+              </div>
+
+              <div className="doc-stats-row">
+                <div className="doc-stat">
+                  <span>Words</span>
+                  <strong>{parsedDocument.word_count.toLocaleString()}</strong>
+                </div>
+                <div className="doc-stat">
+                  <span>Sections</span>
+                  <strong>{parsedDocument.sections.length}</strong>
+                </div>
+                <div className="doc-stat">
+                  <span>Paragraphs</span>
+                  <strong>{parsedDocument.paragraph_count}</strong>
+                </div>
+              </div>
+
+              {parsedDocument.extraction_signals && parsedDocument.extraction_signals.length > 0 && (
+                <div className="signal-chips">
+                  {parsedDocument.extraction_signals.slice(0, 5).map((s) => (
+                    <span key={s.name} className="signal-chip">{s.name.replaceAll("_", " ")}</span>
+                  ))}
+                </div>
+              )}
+
+              <label className="reupload-label">
+                <input
+                  type="file"
+                  accept=".docx,.txt,.pdf"
+                  onChange={(e) => {
+                    handleFileChange(e.target.files?.[0] ?? null);
+                    setParsedDocument(null);
+                    setStatusMessage(null);
+                  }}
+                />
+                <RotateCcw size={13} /> Replace document
+              </label>
+            </>
+          )}
 
           {useCaseAssessment && !useCaseAssessment.is_supported && (
             <div className="unsupported-card">
-              <h3>Unsupported use case for current scope</h3>
-              <p>The platform currently supports SOW, presentation, and requirement-oriented documents.</p>
+              <h3>Outside supported use cases</h3>
+              <p>Upload project scope notes, proposal docs, or requirements specifications.</p>
               {useCaseAssessment.reasons.length > 0 && (
                 <ul className="unsupported-reasons">
-                  {useCaseAssessment.reasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
+                  {useCaseAssessment.reasons.map((r) => <li key={r}>{r}</li>)}
                 </ul>
               )}
             </div>
           )}
+        </article>
 
-          {parsedDocument && (
-            <div className="summary-grid">
+        {/* ════ RIGHT — Generate + Outputs ════ */}
+        <div className="studio-right">
+
+          {/* Generate panel */}
+          <article className="panel studio-generate">
+            <header className="step-header">
+              <span className="step-badge">02</span>
               <div>
-                <small>Title</small>
-                <p>{parsedDocument.title}</p>
+                <h2>Generate Deliverables</h2>
+                <p className="step-desc">
+                  {parsedDocument ? `Using: ${parsedDocument.title}` : "Parse a document first"}
+                </p>
               </div>
-              <div>
-                <small>Type</small>
-                <p>{parsedDocument.file_type}</p>
-              </div>
-              <div>
-                <small>Words</small>
-                <p>{parsedDocument.word_count}</p>
-              </div>
-              <div>
-                <small>Sections</small>
-                <p>{parsedDocument.sections.length}</p>
-              </div>
+            </header>
+
+            {/* Tabs */}
+            <div className="gen-tabs">
+              <button
+                className={`gen-tab${activeTab === "sow" ? " active" : ""}`}
+                type="button"
+                onClick={() => setActiveTab("sow")}
+              >
+                <FileText size={14} /> Statement of Work
+              </button>
+              <button
+                className={`gen-tab${activeTab === "ppt" ? " active" : ""}`}
+                type="button"
+                onClick={() => setActiveTab("ppt")}
+              >
+                <Presentation size={14} /> Presentation
+              </button>
             </div>
-          )}
-        </article>
 
-        <article className="panel workflow-card">
-          <div className="workflow-card-head">
-            <span className="workflow-step">Step 02</span>
-            <h2>
-              <WandSparkles size={18} /> Generate Deliverables
-            </h2>
-          </div>
-          <label>
-            Client name
-            <input value={clientName} onChange={(event) => setClientName(event.target.value)} />
-          </label>
-          <label>
-            Deck title
-            <input value={deckTitle} onChange={(event) => setDeckTitle(event.target.value)} />
-          </label>
-          <label>
-            Deck subtitle
-            <input value={subtitle} onChange={(event) => setSubtitle(event.target.value)} />
-          </label>
-          <label>
-            Max content slides
-            <input
-              type="number"
-              min={3}
-              max={12}
-              value={maxSlides}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                if (Number.isNaN(value)) {
-                  setMaxSlides(6);
-                  return;
-                }
-                setMaxSlides(Math.min(12, Math.max(3, value)));
-              }}
-            />
-          </label>
-          <label>
-            Assumptions (one per line)
-            <textarea rows={5} value={assumptions} onChange={(event) => setAssumptions(event.target.value)} />
-          </label>
-          <div className="hero-actions">
-            <button className="btn-primary" type="button" onClick={handleGenerateSow} disabled={!parsedDocument || sowLoading}>
-              {sowLoading ? (
-                <>
-                  <Loader2 size={16} className="spin" /> Generating SOW...
-                </>
-              ) : (
-                "Generate SOW"
-              )}
-            </button>
-            <button className="btn-primary" type="button" onClick={handleGeneratePpt} disabled={!parsedDocument || pptLoading}>
-              {pptLoading ? (
-                <>
-                  <Loader2 size={16} className="spin" /> Generating PPT...
-                </>
-              ) : (
-                "Generate PPT"
-              )}
-            </button>
-          </div>
-          {!parsedDocument && (
-            <p className="model-control-note">Parse a document first to enable generation.</p>
-          )}
-        </article>
+            {activeTab === "sow" ? (
+              <div className="gen-form">
+                <label className="field-label">
+                  Client name
+                  <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="e.g. Acme Corporation" />
+                </label>
+                <label className="field-label">
+                  Assumptions <span className="field-hint">(one per line)</span>
+                  <textarea
+                    rows={4}
+                    value={assumptions}
+                    onChange={(e) => setAssumptions(e.target.value)}
+                    placeholder="e.g. Client will provide access to source systems…"
+                  />
+                </label>
+                <button
+                  className="btn-primary gen-btn"
+                  type="button"
+                  onClick={handleGenerateSow}
+                  disabled={!parsedDocument || sowLoading}
+                >
+                  {sowLoading ? <><Loader2 size={15} className="spin" /> Generating SOW…</> : <><WandSparkles size={15} /> Generate SOW</>}
+                </button>
+                {!parsedDocument && <p className="field-hint-block">Parse a document to enable generation.</p>}
+              </div>
+            ) : (
+              <div className="gen-form">
+                <label className="field-label">
+                  Deck title
+                  <input value={deckTitle} onChange={(e) => setDeckTitle(e.target.value)} placeholder="e.g. BSBI Document Intelligence Brief" />
+                </label>
+                <label className="field-label">
+                  Subtitle
+                  <input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="e.g. Generated from uploaded document" />
+                </label>
+                <label className="field-label">
+                  Max content slides
+                  <input
+                    type="number"
+                    min={3}
+                    max={12}
+                    value={maxSlides}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      setMaxSlides(Number.isNaN(v) ? 6 : Math.min(12, Math.max(3, v)));
+                    }}
+                  />
+                </label>
+                <button
+                  className="btn-primary gen-btn"
+                  type="button"
+                  onClick={handleGeneratePpt}
+                  disabled={!parsedDocument || pptLoading}
+                >
+                  {pptLoading ? <><Loader2 size={15} className="spin" /> Generating PPT…</> : <><WandSparkles size={15} /> Generate Presentation</>}
+                </button>
+                {!parsedDocument && <p className="field-hint-block">Parse a document to enable generation.</p>}
+              </div>
+            )}
+          </article>
 
-        <article className="panel workflow-card">
-          <div className="workflow-card-head">
-            <span className="workflow-step">Step 03</span>
-            <h2>
-              <Download size={18} /> Outputs
-            </h2>
-          </div>
-          <div className="stats-grid workflow-stats">
-            <article className="stat-card">
-              <FileCheck2 size={18} />
-              <h3>Parsed</h3>
-              <p>{parsedDocument ? "Yes" : "No"}</p>
-            </article>
-            <article className="stat-card">
-              <FileText size={18} />
-              <h3>SOW</h3>
-              <p>{sowCount}</p>
-            </article>
-            <article className="stat-card">
-              <Presentation size={18} />
-              <h3>PPT</h3>
-              <p>{pptCount}</p>
-            </article>
-            <article className="stat-card">
-              <FilePlus2 size={18} />
-              <h3>Total</h3>
-              <p>{outputs.length}</p>
-            </article>
-          </div>
+          {/* Outputs panel */}
+          <article className="panel studio-outputs">
+            <header className="step-header">
+              <span className="step-badge">03</span>
+              <div>
+                <h2>Outputs</h2>
+                <p className="step-desc">Session artifacts ready to download</p>
+              </div>
+              <div className="outputs-counters">
+                <span className="output-counter">
+                  <FileText size={12} /> {sowCount} SOW
+                </span>
+                <span className="output-counter">
+                  <Presentation size={12} /> {pptCount} PPT
+                </span>
+                <span className="output-counter total">
+                  <FilePlus2 size={12} /> {outputs.length}
+                </span>
+              </div>
+            </header>
 
-          {outputs.length === 0 ? (
-            <p className="model-control-note">No artifacts yet. Generate SOW or PPT above.</p>
-          ) : (
-            <div className="workflow-output-list">
-              {outputs.slice(0, 6).map((artifact) => (
-                <div key={artifact.id} className="workflow-output-item">
-                  <div>
-                    <p className="meta-line">{artifact.artifact_type.toUpperCase()}</p>
-                    <p>{artifact.artifact_name}</p>
+            {outputs.length === 0 ? (
+              <div className="outputs-empty">
+                <Download size={20} strokeWidth={1.5} />
+                <p>Generated files will appear here</p>
+              </div>
+            ) : (
+              <div className="outputs-list">
+                {outputs.slice(0, 8).map((artifact) => (
+                  <div key={artifact.id} className="output-row">
+                    <span className={`output-type-badge ${artifact.artifact_type}`}>
+                      {artifact.artifact_type.toUpperCase()}
+                    </span>
+                    <span className="output-name">{artifact.artifact_name}</span>
+                    <button
+                      className="btn-icon-download"
+                      type="button"
+                      title="Download"
+                      onClick={() => handleDownload(artifact.download_url, artifact.artifact_name)}
+                    >
+                      <Download size={14} />
+                    </button>
                   </div>
-                  <button
-                    className="btn-ghost"
-                    type="button"
-                    onClick={() => handleDownload(artifact.download_url, artifact.artifact_name)}
-                  >
-                    <Download size={14} /> Download
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </article>
+                ))}
+              </div>
+            )}
+          </article>
+        </div>
       </div>
     </section>
   );

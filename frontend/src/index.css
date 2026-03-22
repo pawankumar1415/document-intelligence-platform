@@ -1,13 +1,23 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=Manrope:wght@600;700;800&display=swap");
 
 :root {
-  --surface: #f8f8f9;
-  --paper: #ffffff;
-  --line: #e4e4e8;
-  --ink-strong: #181b21;
-  --ink-muted: #5f6776;
-  --accent-red: #b11223;
-  --accent-red-dark: #8b0f1d;
+  --surface: #0f1117;
+  --surface-1: #161922;
+  --surface-2: #1d2130;
+  --paper: #1a1e2b;
+  --paper-2: #212638;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --ink-strong: #f0f2f8;
+  --ink-mid: #a8b0c4;
+  --ink-muted: #6b748a;
+  --accent-red: #c0172b;
+  --accent-red-dark: #9a0f1e;
+  --accent-red-glow: rgba(192, 23, 43, 0.35);
+  --accent-red-subtle: rgba(192, 23, 43, 0.12);
+  --green: #22c55e;
+  --green-subtle: rgba(34, 197, 94, 0.12);
+  --green-text: #4ade80;
 }
 
 * {
@@ -25,14 +35,11 @@ body {
   font-family: "Inter", sans-serif;
   background: var(--surface);
   color: var(--ink-strong);
-  line-height: 1.45;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
-h1,
-h2,
-h3,
-h4,
-p {
+h1, h2, h3, h4, p {
   margin: 0;
 }
 
@@ -41,8 +48,20 @@ a {
   color: inherit;
 }
 
-button,
-input,
-textarea {
+button, input, textarea {
   font: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 99px;
 }

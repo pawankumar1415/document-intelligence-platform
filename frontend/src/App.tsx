@@ -5,10 +5,8 @@ import Navbar from "./components/Navbar";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AppStateProvider } from "./context/AppStateContext";
 import DashboardPage from "./pages/DashboardPage";
-import GeneratePage from "./pages/GeneratePage";
 import LoginPage from "./pages/LoginPage";
 import OutputsPage from "./pages/OutputsPage";
-import UploadPage from "./pages/UploadPage";
 import "./App.css";
 
 function App() {
@@ -27,9 +25,10 @@ function App() {
                 <main className="main-content">
                   <Routes>
                     <Route path="/dashboard" element={<DashboardPage />} />
-                    <Route path="/upload" element={<UploadPage />} />
-                    <Route path="/generate" element={<GeneratePage />} />
                     <Route path="/outputs" element={<OutputsPage />} />
+                    {/* Legacy redirects */}
+                    <Route path="/upload" element={<Navigate to="/dashboard" replace />} />
+                    <Route path="/generate" element={<Navigate to="/dashboard" replace />} />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                   </Routes>
                 </main>
