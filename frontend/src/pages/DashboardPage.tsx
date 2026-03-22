@@ -1,6 +1,9 @@
 import {
   AlertCircle,
+  AlignLeft,
   CheckCircle2,
+  Clipboard,
+  ClipboardCheck,
   Cpu,
   Download,
   FileCheck2,
@@ -12,13 +15,20 @@ import {
   UploadCloud,
   WandSparkles,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useAppState } from "../context/AppStateContext";
-import { ApiError, downloadArtifact, generatePptx, generateSow, parseDocument } from "../services/api";
-import type { UseCaseAssessment } from "../types/app";
+import { ApiError, downloadArtifact, generatePptx, generateSow, parseDocument, summarizeDocument } from "../services/api";
+import type { SummarizeResponse, SummaryMode, UseCaseAssessment } from "../types/app";
 
-type GenTab = "sow" | "ppt";
+type GenTab = "sow" | "ppt" | "summarize";
+
+const SUMMARY_MODES: { id: SummaryMode; label: string; desc: string }[] = [
+  { id: "executive_summary", label: "Executive Summary", desc: "3-4 paragraph narrative covering context, scope, actions, and risks" },
+  { id: "bullet_points",     label: "Bullet Points",     desc: "Grouped bullet points organised by theme" },
+  { id: "narrative_rewrite", label: "Narrative Rewrite", desc: "Clean, flowing prose rewrite of the full document" },
+  { id: "key_insights",      label: "Key Insights",      desc: "5-8 standalone insights ranked by significance" },
+];
 
 const DashboardPage = () => {
   const {
@@ -45,11 +55,23 @@ const DashboardPage = () => {
   const [parseLoading, setParseLoading] = useState(false);
   const [sowLoading, setSowLoading] = useState(false);
   const [pptLoading, setPptLoading] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [useCaseAssessment, setUseCaseAssessment] = useState<UseCaseAssessment | null>(null);
+  const [summaryMode, setSummaryMode] = useState<SummaryMode>("executive_summary");
+  const [summaryResult, setSummaryResult] = useState<SummarizeResponse | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const summaryResultRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (summaryResult && summaryResultRef.current) {
+      summaryResultRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [summaryResult]);
 
   const sowCount = outputs.filter((o) => o.artifact_type === "sow").length;
   const pptCount = outputs.filter((o) => o.artifact_type === "pptx").length;
@@ -154,6 +176,50 @@ const DashboardPage = () => {
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : "Download failed.");
     }
+  };
+
+  const handleSummarize = async () => {
+    if (!parsedDocument) return;
+    setSummaryLoading(true);
+    setSummaryError(null);
+    setSummaryResult(null);
+    setCopied(false);
+    try {
+      const result = await summarizeDocument(
+        {
+          title: parsedDocument.title,
+          source_text: parsedDocument.text,
+          file_type: parsedDocument.file_type,
+          extraction_signals: parsedDocument.extraction_signals,
+          mode: summaryMode,
+          llm_provider: llmProvider,
+          llm_model: llmModel || undefined,
+        },
+        { token },
+      );
+      setSummaryResult(result);
+    } catch (err) {
+      setSummaryError(err instanceof Error ? err.message : "Summarization failed.");
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  const handleCopySummary = async () => {
+    if (!summaryResult) return;
+    const text = [
+      summaryResult.title,
+      summaryResult.summary_line,
+      ...summaryResult.paragraphs,
+      ...summaryResult.key_points.map((p) => `• ${p}`),
+      ...summaryResult.groups.flatMap((g) => [`\n${g.heading}`, ...g.bullets.map((b) => `• ${b}`)]),
+      ...summaryResult.insights.map((i) => `[${i.significance.toUpperCase()}] ${i.insight}`),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const anyError = parseError || generateError || downloadError;
@@ -326,23 +392,18 @@ const DashboardPage = () => {
 
             {/* Tabs */}
             <div className="gen-tabs">
-              <button
-                className={`gen-tab${activeTab === "sow" ? " active" : ""}`}
-                type="button"
-                onClick={() => setActiveTab("sow")}
-              >
-                <FileText size={14} /> Statement of Work
+              <button className={`gen-tab${activeTab === "sow" ? " active" : ""}`} type="button" onClick={() => setActiveTab("sow")}>
+                <FileText size={14} /> SOW
               </button>
-              <button
-                className={`gen-tab${activeTab === "ppt" ? " active" : ""}`}
-                type="button"
-                onClick={() => setActiveTab("ppt")}
-              >
+              <button className={`gen-tab${activeTab === "ppt" ? " active" : ""}`} type="button" onClick={() => setActiveTab("ppt")}>
                 <Presentation size={14} /> Presentation
+              </button>
+              <button className={`gen-tab${activeTab === "summarize" ? " active" : ""}`} type="button" onClick={() => setActiveTab("summarize")}>
+                <AlignLeft size={14} /> Summarize
               </button>
             </div>
 
-            {activeTab === "sow" ? (
+            {activeTab === "sow" && (
               <div className="gen-form">
                 <label className="field-label">
                   Client name
@@ -350,24 +411,16 @@ const DashboardPage = () => {
                 </label>
                 <label className="field-label">
                   Assumptions <span className="field-hint">(one per line)</span>
-                  <textarea
-                    rows={4}
-                    value={assumptions}
-                    onChange={(e) => setAssumptions(e.target.value)}
-                    placeholder="e.g. Client will provide access to source systems…"
-                  />
+                  <textarea rows={4} value={assumptions} onChange={(e) => setAssumptions(e.target.value)} placeholder="e.g. Client will provide access to source systems…" />
                 </label>
-                <button
-                  className="btn-primary gen-btn"
-                  type="button"
-                  onClick={handleGenerateSow}
-                  disabled={!parsedDocument || sowLoading}
-                >
+                <button className="btn-primary gen-btn" type="button" onClick={handleGenerateSow} disabled={!parsedDocument || sowLoading}>
                   {sowLoading ? <><Loader2 size={15} className="spin" /> Generating SOW…</> : <><WandSparkles size={15} /> Generate SOW</>}
                 </button>
                 {!parsedDocument && <p className="field-hint-block">Parse a document to enable generation.</p>}
               </div>
-            ) : (
+            )}
+
+            {activeTab === "ppt" && (
               <div className="gen-form">
                 <label className="field-label">
                   Deck title
@@ -379,26 +432,94 @@ const DashboardPage = () => {
                 </label>
                 <label className="field-label">
                   Max content slides
-                  <input
-                    type="number"
-                    min={3}
-                    max={12}
-                    value={maxSlides}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      setMaxSlides(Number.isNaN(v) ? 6 : Math.min(12, Math.max(3, v)));
-                    }}
-                  />
+                  <input type="number" min={3} max={12} value={maxSlides} onChange={(e) => { const v = Number(e.target.value); setMaxSlides(Number.isNaN(v) ? 6 : Math.min(12, Math.max(3, v))); }} />
                 </label>
-                <button
-                  className="btn-primary gen-btn"
-                  type="button"
-                  onClick={handleGeneratePpt}
-                  disabled={!parsedDocument || pptLoading}
-                >
+                <button className="btn-primary gen-btn" type="button" onClick={handleGeneratePpt} disabled={!parsedDocument || pptLoading}>
                   {pptLoading ? <><Loader2 size={15} className="spin" /> Generating PPT…</> : <><WandSparkles size={15} /> Generate Presentation</>}
                 </button>
                 {!parsedDocument && <p className="field-hint-block">Parse a document to enable generation.</p>}
+              </div>
+            )}
+
+            {activeTab === "summarize" && (
+              <div className="gen-form">
+                <div className="summary-mode-grid">
+                  {SUMMARY_MODES.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className={`summary-mode-btn${summaryMode === m.id ? " active" : ""}`}
+                      onClick={() => { setSummaryMode(m.id); setSummaryResult(null); setSummaryError(null); }}
+                    >
+                      <span className="summary-mode-label">{m.label}</span>
+                      <span className="summary-mode-desc">{m.desc}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {parsedDocument && (
+                  <div className="summary-doc-context">
+                    <span className="summary-context-pill">
+                      {parsedDocument.extraction_signals?.[0]?.name.replaceAll("_", " ") ?? parsedDocument.file_type}
+                    </span>
+                    <span className="summary-context-label">· {parsedDocument.word_count} words · AI will adapt tone and structure to document type</span>
+                  </div>
+                )}
+
+                <button className="btn-primary gen-btn" type="button" onClick={handleSummarize} disabled={!parsedDocument || summaryLoading}>
+                  {summaryLoading ? <><Loader2 size={15} className="spin" /> Summarizing…</> : <><AlignLeft size={15} /> Generate Summary</>}
+                </button>
+                {!parsedDocument && <p className="field-hint-block">Parse a document to enable summarization.</p>}
+
+                {summaryError && (
+                  <div className="message error" style={{ marginTop: "0.75rem" }}>
+                    <AlertCircle size={14} /><span>{summaryError}</span>
+                  </div>
+                )}
+
+                {summaryResult && (
+                  <div className="summary-result" ref={summaryResultRef}>
+                    <div className="summary-result-header">
+                      <div>
+                        <p className="summary-result-title">{summaryResult.title}</p>
+                        {summaryResult.doc_context && <p className="summary-result-context">Detected as: {summaryResult.doc_context}</p>}
+                      </div>
+                      <button className="btn-icon-copy" type="button" onClick={handleCopySummary} title="Copy to clipboard">
+                        {copied ? <ClipboardCheck size={14} /> : <Clipboard size={14} />}
+                      </button>
+                    </div>
+
+                    {summaryResult.summary_line && (
+                      <p className="summary-summary-line">{summaryResult.summary_line}</p>
+                    )}
+
+                    {summaryResult.paragraphs.map((p, i) => (
+                      <p key={i} className="summary-paragraph">{p}</p>
+                    ))}
+
+                    {summaryResult.key_points.length > 0 && (
+                      <ul className="summary-bullets">
+                        {summaryResult.key_points.map((pt, i) => <li key={i}>{pt}</li>)}
+                      </ul>
+                    )}
+
+                    {summaryResult.groups.map((g, i) => (
+                      <div key={i} className="summary-group">
+                        <p className="summary-group-heading">{g.heading}</p>
+                        <ul className="summary-bullets">
+                          {g.bullets.map((b, j) => <li key={j}>{b}</li>)}
+                        </ul>
+                      </div>
+                    ))}
+
+                    {summaryResult.insights.map((insight, i) => (
+                      <div key={i} className={`summary-insight insight-${insight.significance}`}>
+                        <span className="insight-sig">{insight.significance}</span>
+                        <p>{insight.insight}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </article>

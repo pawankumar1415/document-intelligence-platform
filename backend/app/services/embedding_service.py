@@ -208,24 +208,50 @@ def _supported_models_for_backend(backend: str, model_id: str, dimension: int) -
 
 
 def _encode_ollama(model_id: str, texts: list[str]) -> list[list[float]]:
+    base_url = configured_ollama_base_url().rstrip("/")
+
+    # Try the modern batch endpoint first (Ollama >= 0.3.6)
     payload = json.dumps({"model": model_id, "input": texts}).encode("utf-8")
     request = Request(
-        f"{configured_ollama_base_url().rstrip('/')}/api/embed",
+        f"{base_url}/api/embed",
         headers={"Content-Type": "application/json"},
         data=payload,
     )
     try:
         with urlopen(request, timeout=90) as response:
             response_payload = json.loads(response.read().decode("utf-8"))
+        vectors = _extract_ollama_embeddings(response_payload)
+        if len(vectors) != len(texts):
+            raise RuntimeError("Ollama embedding response length mismatch.")
+        return [_normalize_vector(vector) for vector in vectors]
     except HTTPError as exc:
-        raise RuntimeError(f"Ollama embed request failed with status {exc.code}.") from exc
+        if exc.code != 404:
+            raise RuntimeError(f"Ollama embed request failed with status {exc.code}.") from exc
+        # 404 means /api/embed doesn't exist — fall back to legacy /api/embeddings endpoint
     except (URLError, TimeoutError) as exc:
         raise RuntimeError("Could not connect to Ollama. Ensure `ollama serve` is running.") from exc
 
-    vectors = _extract_ollama_embeddings(response_payload)
-    if len(vectors) != len(texts):
-        raise RuntimeError("Ollama embedding response length mismatch.")
-    return [_normalize_vector(vector) for vector in vectors]
+    # Legacy endpoint (Ollama < 0.3.6): single prompt per request
+    vectors: list[list[float]] = []
+    for text in texts:
+        legacy_payload = json.dumps({"model": model_id, "prompt": text}).encode("utf-8")
+        legacy_request = Request(
+            f"{base_url}/api/embeddings",
+            headers={"Content-Type": "application/json"},
+            data=legacy_payload,
+        )
+        try:
+            with urlopen(legacy_request, timeout=90) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            raise RuntimeError(f"Ollama embed request failed with status {exc.code}.") from exc
+        except (URLError, TimeoutError) as exc:
+            raise RuntimeError("Could not connect to Ollama. Ensure `ollama serve` is running.") from exc
+        embedding = response_payload.get("embedding")
+        if not isinstance(embedding, list):
+            raise RuntimeError("Ollama legacy embeddings response did not include an embedding vector.")
+        vectors.append(_normalize_vector([float(v) for v in embedding]))
+    return vectors
 
 
 @lru_cache(maxsize=8)

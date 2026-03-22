@@ -137,3 +137,36 @@ export type ProviderCatalogResponse = {
   providers: ProviderCatalogEntry[];
   embedding: EmbeddingCatalog;
 };
+
+export type SummaryMode = "executive_summary" | "bullet_points" | "narrative_rewrite" | "key_insights";
+
+export type SummarizeRequest = {
+  title: string;
+  source_text: string;
+  file_type?: string;
+  extraction_signals?: ExtractionSignal[];
+  mode: SummaryMode;
+  llm_provider: LLMProvider;
+  llm_model?: string;
+};
+
+export type SummaryGroup = {
+  heading: string;
+  bullets: string[];
+};
+
+export type SummaryInsight = {
+  insight: string;
+  significance: "high" | "medium" | "low";
+};
+
+export type SummarizeResponse = {
+  mode: SummaryMode;
+  doc_context: string;
+  title: string;
+  paragraphs: string[];
+  key_points: string[];
+  groups: SummaryGroup[];
+  insights: SummaryInsight[];
+  summary_line: string;
+};

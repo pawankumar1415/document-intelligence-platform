@@ -8,6 +8,8 @@ import type {
   EmbeddingCatalog,
   ParseResponse,
   ProviderCatalogResponse,
+  SummarizeRequest,
+  SummarizeResponse,
 } from "../types/app";
 
 export const API_BASE_URL =
@@ -148,6 +150,20 @@ export const generatePptx = async (
   options: AuthOptions,
 ): Promise<GenerateResult> => {
   return requestJson<GenerateResult>(`${API_BASE_URL}/api/v1/generate/pptx`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(options.token),
+    },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const summarizeDocument = async (
+  payload: SummarizeRequest,
+  options: AuthOptions,
+): Promise<SummarizeResponse> => {
+  return requestJson<SummarizeResponse>(`${API_BASE_URL}/api/v1/summarize`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

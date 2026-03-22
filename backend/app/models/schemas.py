@@ -189,3 +189,34 @@ class ProviderCatalogResponse(BaseModel):
 class EmbeddingConfigUpdateRequest(BaseModel):
     backend: str = Field(..., min_length=1)
     model_id: str = Field(..., min_length=1)
+
+
+class SummaryGroup(BaseModel):
+    heading: str
+    bullets: list[str] = Field(default_factory=list)
+
+
+class SummaryInsight(BaseModel):
+    insight: str
+    significance: str = "medium"
+
+
+class SummarizeRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    source_text: str = Field(..., min_length=10)
+    file_type: str | None = None
+    extraction_signals: list[ExtractionSignal] | None = None
+    mode: Literal["executive_summary", "bullet_points", "narrative_rewrite", "key_insights"] = "executive_summary"
+    llm_provider: LLMProvider = "openai"
+    llm_model: str | None = None
+
+
+class SummarizeResponse(BaseModel):
+    mode: str
+    doc_context: str
+    title: str = ""
+    paragraphs: list[str] = Field(default_factory=list)
+    key_points: list[str] = Field(default_factory=list)
+    groups: list[SummaryGroup] = Field(default_factory=list)
+    insights: list[SummaryInsight] = Field(default_factory=list)
+    summary_line: str = ""

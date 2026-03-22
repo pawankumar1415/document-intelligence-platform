@@ -18,6 +18,10 @@ from backend.app.models.schemas import (
     ProviderCatalogResponse,
     ProjectCreateRequest,
     ProjectResponse,
+    SummarizeRequest,
+    SummarizeResponse,
+    SummaryGroup,
+    SummaryInsight,
     UseCaseAssessment,
     VectorStatusResponse,
 )
@@ -41,6 +45,7 @@ from backend.app.services.file_utils import OUTPUT_DIR
 from backend.app.services.document_parser import DocumentParser
 from backend.app.services.ppt_generator import PptGenerator
 from backend.app.services.provider_catalog import get_provider_catalog, resolve_chat_model
+from backend.app.services.summarization_service import summarize_document
 from backend.app.services.sow_generator import SowGenerator
 from backend.app.services.use_case_router import screen_document_for_supported_use_cases
 from backend.app.services.vector_store import (
@@ -80,6 +85,18 @@ def get_provider_models(user: dict = Depends(get_required_user)) -> ProviderCata
         providers=get_provider_catalog(),
         embedding=embedding_configuration(),
     )
+
+
+@router.post("/api/v1/summarize", response_model=SummarizeResponse)
+def summarize(
+    request: SummarizeRequest,
+    user: dict = Depends(get_required_user),
+) -> SummarizeResponse:
+    del user
+    try:
+        return summarize_document(request)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Summarization failed: {exc}") from exc
 
 
 @router.post("/api/v1/embedding/config", response_model=EmbeddingCatalog)

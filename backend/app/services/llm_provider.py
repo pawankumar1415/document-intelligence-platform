@@ -46,9 +46,9 @@ def _generate_json_with_ollama(
     user_prompt: str,
     temperature: float,
 ) -> dict:
-    timeout_seconds = _env_int("OLLAMA_CHAT_TIMEOUT_SECONDS", 90)
-    num_predict = _env_int("OLLAMA_CHAT_NUM_PREDICT", 280)
-    num_ctx = _env_int("OLLAMA_CHAT_NUM_CTX", 3072)
+    timeout_seconds = _env_int("OLLAMA_CHAT_TIMEOUT_SECONDS", 180)
+    num_predict = _env_int("OLLAMA_CHAT_NUM_PREDICT", 2048)
+    num_ctx = _env_int("OLLAMA_CHAT_NUM_CTX", 4096)
     keep_alive = env("OLLAMA_KEEP_ALIVE", "20m") or "20m"
     disable_think = env_bool("OLLAMA_DISABLE_THINK", True)
 
@@ -157,16 +157,43 @@ def generate_json_object(
 
 
 def _extract_json_payload(text: str) -> dict:
+    # 1. Clean response: strip leading/trailing whitespace and any think-block wrappers
+    cleaned = text.strip()
+    # Remove <think>...</think> blocks some models emit
+    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", cleaned, flags=re.IGNORECASE).strip()
+
+    # 2. Try strict parse on the cleaned text
     try:
-        return json.loads(text)
+        return json.loads(cleaned)
     except json.JSONDecodeError:
-        match = re.search(r"\{[\s\S]*\}", text)
-        if not match:
-            return {"raw": text}
+        pass
+
+    # 3. Try to find the outermost {...} block
+    match = re.search(r"\{[\s\S]*\}", cleaned)
+    if match:
         try:
             return json.loads(match.group(0))
         except json.JSONDecodeError:
-            return {"raw": text}
+            pass
+
+    # 4. Truncated JSON recovery: try to parse with progressively fewer trailing chars
+    # until we get a valid object (handles incomplete arrays / strings)
+    candidate = match.group(0) if match else cleaned
+    for _ in range(min(len(candidate), 512)):
+        candidate = candidate.rstrip()
+        if not candidate:
+            break
+        # Close any open string, arrays and the root object
+        for suffix in ['"}]}', '"}]', '"}', '"]', '"', "]}", "}", "}"]:
+            try:
+                result = json.loads(candidate + suffix)
+                if isinstance(result, dict):
+                    return result
+            except json.JSONDecodeError:
+                pass
+        candidate = candidate[:-1]
+
+    return {"raw": text}
 
 
 def _env_int(name: str, default: int) -> int:
