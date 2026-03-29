@@ -1,67 +1,258 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=Manrope:wght@600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap");
 
 :root {
-  --surface: #0f1117;
-  --surface-1: #161922;
-  --surface-2: #1d2130;
-  --paper: #1a1e2b;
-  --paper-2: #212638;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.13);
-  --ink-strong: #f0f2f8;
-  --ink-mid: #a8b0c4;
-  --ink-muted: #6b748a;
-  --accent-red: #c0172b;
-  --accent-red-dark: #9a0f1e;
-  --accent-red-glow: rgba(192, 23, 43, 0.35);
-  --accent-red-subtle: rgba(192, 23, 43, 0.12);
-  --green: #22c55e;
-  --green-subtle: rgba(34, 197, 94, 0.12);
-  --green-text: #4ade80;
+  /* ── BSBI Brand ── */
+  --bsbi-red: #D32F2F;
+  --bsbi-red-dark: #B71C1C;
+  --bsbi-red-light: #EF5350;
+  --bsbi-red-glow: rgba(211, 47, 47, 0.12);
+  --bsbi-red-subtle: rgba(211, 47, 47, 0.08);
+
+  /* ── Accent aliases ── */
+  --accent: var(--bsbi-red);
+  --accent-hover: var(--bsbi-red-dark);
+  --accent-glow: var(--bsbi-red-glow);
+
+  /* ── Light theme surfaces ── */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-tertiary: #f3f4f6;
+
+  /* ── Text ── */
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+
+  /* ── Borders ── */
+  --border-color: #e5e7eb;
+  --border-highlight: #d1d5db;
+
+  /* ── Sidebar (stays dark) ── */
+  --sidebar-bg: #111111;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-width: 260px;
+
+  /* ── Status ── */
+  --status-pass: #059669;
+  --status-pass-bg: #d1fae5;
+  --status-fail: #dc2626;
+  --status-fail-bg: #fee2e2;
+  --status-warn: #d97706;
+  --status-warn-bg: #fef3c7;
+
+  /* ── Misc ── */
+  --border-radius: 8px;
+  --border-radius-lg: 12px;
+  --transition: all 0.2s ease;
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
 }
 
-* {
+/* ── Reset ── */
+*, *::before, *::after {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-html,
-body,
-#root {
-  margin: 0;
+html, body, #root {
   min-height: 100%;
 }
 
 body {
-  font-family: "Inter", sans-serif;
-  background: var(--surface);
-  color: var(--ink-strong);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4, p {
-  margin: 0;
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
 }
 
 a {
-  text-decoration: none;
   color: inherit;
+  text-decoration: none;
 }
 
-button, input, textarea {
+button, input, textarea, select {
   font: inherit;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+/* ── Utility: card ── */
+.card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+.card-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
 }
 
-::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
-  border-radius: 99px;
+/* ── Utility: glass panel ── */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow-md);
 }
+
+/* ── Utility: buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: var(--border-radius);
+  border: none;
+  cursor: pointer;
+  transition: var(--transition);
+  outline: none;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-highlight);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-secondary);
+}
+
+/* ── Utility: forms ── */
+.form-group { margin-bottom: 20px; }
+
+.form-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.form-control {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  transition: var(--transition);
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+textarea.form-control {
+  resize: vertical;
+  min-height: 100px;
+  line-height: 1.5;
+}
+
+/* ── Utility: status messages ── */
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--border-radius);
+  font-size: 0.875rem;
+  margin-bottom: 16px;
+}
+
+.message.success {
+  background: var(--status-pass-bg);
+  color: var(--status-pass);
+  border: 1px solid rgba(5, 150, 105, 0.25);
+}
+
+.message.error {
+  background: var(--status-fail-bg);
+  color: var(--status-fail);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+}
+
+/* ── Utility: modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-content {
+  background-color: var(--bg-primary);
+  border-radius: var(--border-radius-lg);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  max-width: 500px;
+  width: 90%;
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Utility: animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes modalPop {
+  from { transform: scale(0.96); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+.spin { animation: spin 0.8s linear infinite; }

@@ -1,41 +1,49 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import AIControlDrawer from "./components/AIControlDrawer";
-import Navbar from "./components/Navbar";
 import ProtectedRoute from "./components/ProtectedRoute";
+import Sidebar from "./components/Sidebar";
 import { AppStateProvider } from "./context/AppStateContext";
-import DashboardPage from "./pages/DashboardPage";
-import LoginPage from "./pages/LoginPage";
-import OutputsPage from "./pages/OutputsPage";
+import AdminView from "./views/AdminView";
+import LoginView from "./views/LoginView";
+import OutputsView from "./views/OutputsView";
+import SettingsView from "./views/SettingsView";
+import StudioView from "./views/StudioView";
 import "./App.css";
 
 function App() {
   return (
     <AppStateProvider>
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="/login" element={<LoginPage />} />
+        {/* Public */}
+        <Route path="/login" element={<LoginView />} />
+
+        {/* Protected — with sidebar */}
         <Route
-          path="*"
+          path="/*"
           element={
             <ProtectedRoute>
-              <div className="app-shell">
-                <Navbar />
-                <AIControlDrawer />
+              <div className="app-container">
+                <Sidebar />
                 <main className="main-content">
                   <Routes>
-                    <Route path="/dashboard" element={<DashboardPage />} />
-                    <Route path="/outputs" element={<OutputsPage />} />
+                    <Route path="/" element={<Navigate to="/studio" replace />} />
+                    <Route path="/studio" element={<StudioView />} />
+                    <Route path="/outputs" element={<OutputsView />} />
+                    <Route path="/settings" element={<SettingsView />} />
+                    <Route path="/admin" element={<AdminView />} />
                     {/* Legacy redirects */}
-                    <Route path="/upload" element={<Navigate to="/dashboard" replace />} />
-                    <Route path="/generate" element={<Navigate to="/dashboard" replace />} />
-                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                    <Route path="/dashboard" element={<Navigate to="/studio" replace />} />
+                    <Route path="/generate" element={<Navigate to="/studio" replace />} />
+                    <Route path="/upload" element={<Navigate to="/studio" replace />} />
+                    <Route path="*" element={<Navigate to="/studio" replace />} />
                   </Routes>
                 </main>
               </div>
             </ProtectedRoute>
           }
         />
+
+        <Route path="/" element={<Navigate to="/login" replace />} />
       </Routes>
     </AppStateProvider>
   );
