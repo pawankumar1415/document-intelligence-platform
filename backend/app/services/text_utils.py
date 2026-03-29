@@ -8,11 +8,16 @@ from backend.app.models.schemas import DocumentInput
 
 KEYWORD_GROUPS = OrderedDict(
     {
-        "Project Overview": ("overview", "summary", "background", "objective", "goal"),
-        "Scope": ("scope", "service", "solution", "approach", "workstream"),
-        "Deliverables": ("deliverable", "output", "artifact", "report", "dashboard"),
-        "Timeline": ("timeline", "schedule", "phase", "week", "milestone"),
-        "Risks": ("risk", "dependency", "constraint", "assumption", "issue"),
+        "Project Overview": ("overview", "summary", "background", "objective", "goal", "purpose", "introduction", "context"),
+        "Scope": ("scope", "service", "solution", "approach", "workstream", "architecture", "design", "system", "platform"),
+        "Deliverables": ("deliverable", "output", "artifact", "report", "dashboard", "component", "module", "feature", "capability"),
+        "Timeline": ("timeline", "schedule", "phase", "week", "milestone", "roadmap", "iteration", "sprint", "release"),
+        "Risks": (
+            "risk", "dependency", "constraint", "assumption", "issue",
+            "limitation", "challenge", "concern", "slower", "cost",
+            "complex", "expertise", "manual", "overhead", "failure",
+            "gap", "drawback", "downside", "mitigation", "trade-off",
+        ),
     }
 )
 

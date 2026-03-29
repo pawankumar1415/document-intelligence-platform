@@ -156,6 +156,93 @@ def generate_json_object(
     return json.loads(text)
 
 
+def generate_text(
+    *,
+    provider: LLMProvider,
+    messages: list[dict],
+    temperature: float = 0.4,
+    model: str | None = None,
+) -> str:
+    """Generate a free-form text response given a list of chat messages."""
+    if provider == "openai":
+        client = _get_openai_client()
+        resolved_model = resolve_chat_model("openai", model)
+        response = client.chat.completions.create(
+            model=resolved_model,
+            temperature=temperature,
+            messages=messages,
+        )
+        return response.choices[0].message.content or ""
+
+    if provider == "azure_openai":
+        client = _get_azure_client()
+        deployment = resolve_chat_model("azure_openai", model or env("AZURE_OPENAI_CHAT_DEPLOYMENT"))
+        response = client.chat.completions.create(
+            model=deployment,
+            temperature=temperature,
+            messages=messages,
+        )
+        return response.choices[0].message.content or ""
+
+    if provider == "ollama":
+        resolved_model = resolve_chat_model("ollama", model)
+        return _generate_text_with_ollama(model=resolved_model, messages=messages, temperature=temperature)
+
+    # Groq
+    client = _get_groq_client()
+    resolved_model = resolve_chat_model("groq", model)
+    response = client.chat.completions.create(
+        model=resolved_model,
+        temperature=temperature,
+        messages=messages,
+    )
+    return response.choices[0].message.content or ""
+
+
+def _generate_text_with_ollama(*, model: str, messages: list[dict], temperature: float) -> str:
+    timeout_seconds = _env_int("OLLAMA_CHAT_TIMEOUT_SECONDS", 180)
+    num_predict = _env_int("OLLAMA_CHAT_NUM_PREDICT", 2048)
+    num_ctx = _env_int("OLLAMA_CHAT_NUM_CTX", 4096)
+    keep_alive = env("OLLAMA_KEEP_ALIVE", "20m") or "20m"
+    disable_think = env_bool("OLLAMA_DISABLE_THINK", True)
+
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "keep_alive": keep_alive,
+            "options": {
+                "temperature": temperature,
+                "num_predict": num_predict,
+                "num_ctx": num_ctx,
+            },
+            "think": not disable_think,
+        }
+    ).encode("utf-8")
+    request = Request(
+        f"{_get_ollama_base_url().rstrip('/')}/api/chat",
+        headers={"Content-Type": "application/json"},
+        data=payload,
+    )
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise RuntimeError(f"Ollama chat request failed with status {exc.code}.") from exc
+    except (URLError, TimeoutError) as exc:
+        raise RuntimeError(
+            "Could not connect to Ollama or request timed out."
+        ) from exc
+
+    message = response_payload.get("message", {})
+    content = message.get("content", "") if isinstance(message, dict) else response_payload.get("response", "")
+    # Strip think blocks if present
+    import re as _re
+    content = _re.sub(r"<think>[\s\S]*?</think>", "", str(content), flags=_re.IGNORECASE).strip()
+    return content
+
+
 def _extract_json_payload(text: str) -> dict:
     # 1. Clean response: strip leading/trailing whitespace and any think-block wrappers
     cleaned = text.strip()

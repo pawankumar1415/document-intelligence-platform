@@ -119,7 +119,7 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     expires_in_seconds: int
-    user: AuthUserProfile
+    user: AuthUserProfile  # may be AuthUserProfileExtended (subclass) at runtime
 
 
 class ProjectCreateRequest(BaseModel):
@@ -220,3 +220,47 @@ class SummarizeResponse(BaseModel):
     groups: list[SummaryGroup] = Field(default_factory=list)
     insights: list[SummaryInsight] = Field(default_factory=list)
     summary_line: str = ""
+
+
+# ── Chat schemas ───────────────────────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    session_id: str | None = None
+    project_id: int | None = None
+    llm_provider: LLMProvider = "openai"
+    llm_model: str | None = None
+
+
+class ChatMeta(BaseModel):
+    intent: str
+    context_length: int
+    is_new_session: bool
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    session_id: str
+    meta: ChatMeta
+
+
+# ── Admin schemas ──────────────────────────────────────────────────────────────
+
+class AdminUserRecord(BaseModel):
+    id: int
+    email: str
+    created_at: str
+    is_admin: bool
+    is_active: bool
+
+
+class AdminUserUpdateRequest(BaseModel):
+    is_admin: bool | None = None
+    is_active: bool | None = None
+
+
+# ── Extended auth profile (with admin flag) ────────────────────────────────────
+
+class AuthUserProfileExtended(AuthUserProfile):
+    is_admin: bool = False
+    is_active: bool = True

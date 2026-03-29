@@ -7,30 +7,44 @@ from docx.shared import Pt, RGBColor, Inches, Emu
 from pptx.dml.color import RGBColor as PptxRGBColor
 from pptx.util import Inches as PptxInches, Pt as PptxPt, Emu as PptxEmu
 
+from backend.app.config import env
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 LOGO_PATH = PROJECT_ROOT / "frontend" / "public" / "bsbi-logo.jpeg"
-PPT_TEMPLATE_PATH = PROJECT_ROOT / "backend" / "data" / "NDA AI Narrative - Show&Tell.pptx"
+PPT_TEMPLATE_PATH = PROJECT_ROOT / "backend" / "data" / "bsbi-template.pptx"
+PPT_TEMPLATE_LEGACY_PATH = PROJECT_ROOT / "backend" / "data" / "NDA AI Narrative - Show&Tell.pptx"
 
-# ── BSBI Brand Colour Palette ──────────────────────────────────────────────
-BSBI_RED = RGBColor(177, 18, 35)
-BSBI_DARK_GREY = RGBColor(51, 51, 51)
-BSBI_MID_GREY = RGBColor(120, 120, 120)
-BSBI_LIGHT_GREY = RGBColor(230, 230, 230)
-BSBI_WHITE = RGBColor(255, 255, 255)
-BSBI_ACCENT_DARK = RGBColor(40, 40, 40)
+# ── Company constants (override via env) ───────────────────────────────────
+COMPANY_NAME: str = env("COMPANY_NAME", "BSBI Consulting") or "BSBI Consulting"
+CONFIDENTIAL_TEXT: str = env("CONFIDENTIAL_TEXT", "CONFIDENTIAL") or "CONFIDENTIAL"
 
-# PPT-specific colours (python-pptx uses its own RGBColor class)
-PPT_RED = PptxRGBColor(177, 18, 35)
-PPT_DARK_GREY = PptxRGBColor(51, 51, 51)
-PPT_MID_GREY = PptxRGBColor(120, 120, 120)
-PPT_LIGHT_GREY = PptxRGBColor(230, 230, 230)
-PPT_WHITE = PptxRGBColor(255, 255, 255)
-PPT_ACCENT_DARK = PptxRGBColor(40, 40, 40)
-PPT_BODY_TEXT = PptxRGBColor(50, 50, 50)
+# ── BSBI Brand Colour Palette (docx / shared) ─────────────────────────────
+BSBI_RED         = RGBColor(177, 18,  35)
+BSBI_DARK_GREY   = RGBColor( 51, 51,  51)
+BSBI_MID_GREY    = RGBColor(120, 120, 120)
+BSBI_LIGHT_GREY  = RGBColor(230, 230, 230)
+BSBI_WHITE       = RGBColor(255, 255, 255)
+BSBI_ACCENT_DARK = RGBColor( 40,  40,  40)
 
-# ── Font defaults ──────────────────────────────────────────────────────────
-FONT_FAMILY = "Calibri"
+# ── PPT-specific colours (pptx RGBColor) ──────────────────────────────────
+PPT_RED          = PptxRGBColor(177,  18,  35)   # BSBI primary red
+PPT_DARK         = PptxRGBColor( 28,  28,  30)   # near-black for slide backgrounds
+PPT_HEADER       = PptxRGBColor( 38,  38,  42)   # dark band on content slides
+PPT_ACCENT_DARK  = PptxRGBColor( 28,  28,  30)   # kept for legacy callers
+PPT_DARK_GREY    = PptxRGBColor( 51,  51,  51)
+PPT_MID_GREY     = PptxRGBColor(120, 120, 120)
+PPT_LIGHT_GREY   = PptxRGBColor(230, 230, 230)
+PPT_OFF_WHITE    = PptxRGBColor(248, 248, 249)   # slide content background
+PPT_WHITE        = PptxRGBColor(255, 255, 255)
+PPT_BODY_TEXT    = PptxRGBColor( 36,  36,  36)
+PPT_COL_LEFT_BG  = PptxRGBColor(255, 243, 244)   # very light red tint for left col
+PPT_COL_RIGHT_BG = PptxRGBColor(245, 245, 247)   # very light grey for right col
+
+# ── Font families ──────────────────────────────────────────────────────────
+FONT_HEADING = "Calibri Light"   # all slide/section titles
+FONT_BODY    = "Calibri"         # body text, bullets, captions, notes
+FONT_FAMILY  = "Calibri"         # docx compatibility alias
 
 
 def logo_exists() -> bool:
@@ -38,7 +52,17 @@ def logo_exists() -> bool:
 
 
 def ppt_template_exists() -> bool:
-    return PPT_TEMPLATE_PATH.exists() and PPT_TEMPLATE_PATH.is_file()
+    """Return True if the BSBI template or the legacy NDA template is available."""
+    return PPT_TEMPLATE_PATH.exists() or PPT_TEMPLATE_LEGACY_PATH.exists()
+
+
+def get_ppt_template_path() -> Path | None:
+    """Return the best available template path, preferring the generated BSBI one."""
+    if PPT_TEMPLATE_PATH.exists():
+        return PPT_TEMPLATE_PATH
+    if PPT_TEMPLATE_LEGACY_PATH.exists():
+        return PPT_TEMPLATE_LEGACY_PATH
+    return None
 
 
 # ── DOCX helpers ───────────────────────────────────────────────────────────
@@ -85,7 +109,6 @@ def apply_docx_styles(document) -> None:
     except KeyError:
         pass
 
-    # Set margins to 1 inch all sides
     for section in document.sections:
         section.top_margin = Inches(1)
         section.bottom_margin = Inches(1)
@@ -99,7 +122,6 @@ def add_styled_table(document, headers: list[str], rows: list[list[str]]) -> Non
     table.style = "Table Grid"
     table.autofit = True
 
-    # Header row
     header_cells = table.rows[0].cells
     for idx, text in enumerate(headers):
         cell = header_cells[idx]
@@ -112,7 +134,6 @@ def add_styled_table(document, headers: list[str], rows: list[list[str]]) -> Non
         run.font.color.rgb = BSBI_WHITE
         _shade_cell(cell, "B11223")
 
-    # Data rows
     for row_idx, row_data in enumerate(rows):
         row_cells = table.rows[row_idx + 1].cells
         shade = "F5F5F5" if row_idx % 2 == 0 else "FFFFFF"
@@ -128,12 +149,10 @@ def add_styled_table(document, headers: list[str], rows: list[list[str]]) -> Non
             run.font.color.rgb = BSBI_DARK_GREY
             _shade_cell(cell, shade)
 
-    # Space after table
     document.add_paragraph("")
 
 
 def _shade_cell(cell, hex_colour: str) -> None:
-    """Apply background shading to a table cell."""
     from docx.oxml import OxmlElement
     shading_elm = OxmlElement("w:shd")
     shading_elm.set(qn("w:fill"), hex_colour)
@@ -142,7 +161,6 @@ def _shade_cell(cell, hex_colour: str) -> None:
 
 
 def add_horizontal_rule(document) -> None:
-    """Add a thin BSBI-red horizontal rule paragraph."""
     from docx.oxml import OxmlElement
     p = document.add_paragraph()
     p_pr = p._p.get_or_add_pPr()
@@ -157,25 +175,22 @@ def add_horizontal_rule(document) -> None:
 
 
 def add_header_footer(document) -> None:
-    """Add branded headers and footers to all sections of the document."""
     from docx.oxml import OxmlElement
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
     for section in document.sections:
         section.different_first_page_header_footer = True
 
-        # Header (non-first pages): BSBI logo left, "Confidential" right
         header = section.header
         header.is_linked_to_previous = False
         hp = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
         hp.clear()
         hp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        run = hp.add_run("BSBI Consulting  |  Confidential")
+        run = hp.add_run(f"{COMPANY_NAME}  |  {CONFIDENTIAL_TEXT}")
         run.font.size = Pt(8)
         run.font.color.rgb = BSBI_MID_GREY
         run.font.name = FONT_FAMILY
 
-        # Footer: Page number centre
         footer = section.footer
         footer.is_linked_to_previous = False
         fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
@@ -185,7 +200,6 @@ def add_header_footer(document) -> None:
         run.font.size = Pt(8)
         run.font.color.rgb = BSBI_MID_GREY
         run.font.name = FONT_FAMILY
-        # Insert PAGE field
         fld_char_begin = OxmlElement("w:fldChar")
         fld_char_begin.set(qn("w:fldCharType"), "begin")
         run._r.append(fld_char_begin)
@@ -201,19 +215,12 @@ def add_header_footer(document) -> None:
 # ── PPT helpers ────────────────────────────────────────────────────────────
 
 def add_ppt_accent_bar(slide, presentation) -> None:
-    """Add a thin BSBI-red bar at the bottom of a slide."""
-    from pptx.util import Inches as I, Emu as E
-    slide_width = presentation.slide_width or E(12192000)  # 13.333 inches default
-    slide_height = presentation.slide_height or E(6858000)  # 7.5 inches default
-    bar_height = I(0.3)
-    left = E(0)
-    top = slide_height - bar_height
+    """Add a thin BSBI-red bar at the very bottom of a slide."""
+    slide_width  = presentation.slide_width  or PptxEmu(12192000)
+    slide_height = presentation.slide_height or PptxEmu(6858000)
+    bar_height = PptxInches(0.22)
     shape = slide.shapes.add_shape(
-        1,  # MSO_SHAPE.RECTANGLE
-        left,
-        top,
-        slide_width,
-        bar_height,
+        1, PptxEmu(0), slide_height - bar_height, slide_width, bar_height,
     )
     shape.fill.solid()
     shape.fill.fore_color.rgb = PPT_RED
@@ -221,32 +228,32 @@ def add_ppt_accent_bar(slide, presentation) -> None:
 
 
 def add_ppt_slide_number(slide, presentation) -> None:
-    """Add a slide number text box in the bottom-right corner."""
-    from pptx.util import Inches as I, Emu as E
-    slide_height = presentation.slide_height or E(6858000)
+    """Add a slide-number field in the bottom-right corner."""
+    import uuid
+    from pptx.enum.text import PP_ALIGN
+    from pptx.oxml.ns import qn as pptx_qn
+    from lxml import etree
+
+    slide_height = presentation.slide_height or PptxEmu(6858000)
     tb = slide.shapes.add_textbox(
-        I(11.5),
-        slide_height - I(0.45),
-        I(1.0),
-        I(0.3),
+        PptxInches(11.4),
+        slide_height - PptxInches(0.38),
+        PptxInches(1.1),
+        PptxInches(0.28),
     )
     tf = tb.text_frame
     tf.clear()
     p = tf.paragraphs[0]
-    from pptx.enum.text import PP_ALIGN
     p.alignment = PP_ALIGN.RIGHT
-    # Insert slide number field via XML
-    from pptx.oxml.ns import qn as pptx_qn
-    from lxml import etree
+
     fld = etree.SubElement(p._p, pptx_qn("a:fld"))
-    import uuid
     fld.set("id", f"{{{uuid.uuid4()}}}")
     fld.set("type", "slidenum")
     rpr = etree.SubElement(fld, pptx_qn("a:rPr"))
     rpr.set("lang", "en-GB")
-    rpr.set("sz", "900")
+    rpr.set("sz", "800")
     solid = etree.SubElement(rpr, pptx_qn("a:solidFill"))
     srgb = etree.SubElement(solid, pptx_qn("a:srgbClr"))
-    srgb.set("val", "787878")
+    srgb.set("val", "888888")
     t = etree.SubElement(fld, pptx_qn("a:t"))
     t.text = "‹#›"

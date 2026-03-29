@@ -4,11 +4,17 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Uploa
 from fastapi.responses import FileResponse
 
 from backend.app.models.schemas import (
+    AdminUserRecord,
+    AdminUserUpdateRequest,
     ArtifactRecord,
     AuthLoginRequest,
     AuthRegisterRequest,
     AuthResponse,
     AuthUserProfile,
+    AuthUserProfileExtended,
+    ChatRequest,
+    ChatResponse,
+    ChatMeta,
     EmbeddingConfigUpdateRequest,
     EmbeddingCatalog,
     GeneratePptxRequest,
@@ -29,6 +35,7 @@ from backend.app.services import persistence
 from backend.app.services.auth_service import (
     create_user,
     create_user_session,
+    require_admin_user,
     require_authenticated_user,
     verify_credentials,
 )
@@ -65,6 +72,10 @@ ppt_generator = PptGenerator()
 
 def get_required_user(authorization: str | None = Header(default=None)) -> dict:
     return require_authenticated_user(authorization)
+
+
+def get_admin_user(authorization: str | None = Header(default=None)) -> dict:
+    return require_admin_user(authorization)
 
 
 @router.get("/health")
@@ -126,7 +137,12 @@ def register_user(request: AuthRegisterRequest) -> AuthResponse:
     return AuthResponse(
         access_token=token,
         expires_in_seconds=ttl_seconds,
-        user=AuthUserProfile(id=int(user["id"]), email=user["email"]),
+        user=AuthUserProfileExtended(
+            id=int(user["id"]),
+            email=user["email"],
+            is_admin=bool(user.get("is_admin", False)),
+            is_active=bool(user.get("is_active", True)),
+        ),
     )
 
 
@@ -140,7 +156,12 @@ def login_user(request: AuthLoginRequest) -> AuthResponse:
     return AuthResponse(
         access_token=token,
         expires_in_seconds=ttl_seconds,
-        user=AuthUserProfile(id=int(user["id"]), email=user["email"]),
+        user=AuthUserProfileExtended(
+            id=int(user["id"]),
+            email=user["email"],
+            is_admin=bool(user.get("is_admin", False)),
+            is_active=bool(user.get("is_active", True)),
+        ),
     )
 
 
@@ -393,3 +414,87 @@ def download_artifact(
         filename=safe_name,
         media_type="application/octet-stream",
     )
+
+
+# ── Chat endpoint ──────────────────────────────────────────────────────────────
+
+@router.post("/api/v1/chat", response_model=ChatResponse)
+def chat(
+    request: ChatRequest,
+    user: dict = Depends(get_required_user),
+) -> ChatResponse:
+    from backend.app.services.chat_service import run_chat
+
+    try:
+        result = run_chat(
+            question=request.question,
+            user_id=int(user["id"]),
+            session_id=request.session_id,
+            project_id=request.project_id,
+            provider=request.llm_provider,
+            model=request.llm_model,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return ChatResponse(
+        answer=result["answer"],
+        session_id=result["session_id"],
+        meta=ChatMeta(**result["meta"]),
+    )
+
+
+# ── Admin endpoints ────────────────────────────────────────────────────────────
+
+@router.get("/api/v1/admin/users", response_model=list[AdminUserRecord])
+def admin_list_users(admin: dict = Depends(get_admin_user)) -> list[AdminUserRecord]:
+    del admin
+    users = persistence.list_all_users()
+    return [
+        AdminUserRecord(
+            id=int(u["id"]),
+            email=u["email"],
+            created_at=u["created_at"],
+            is_admin=bool(u["is_admin"]),
+            is_active=bool(u["is_active"]),
+        )
+        for u in users
+    ]
+
+
+@router.patch("/api/v1/admin/users/{user_id}", response_model=AdminUserRecord)
+def admin_update_user(
+    user_id: int,
+    request: AdminUserUpdateRequest,
+    admin: dict = Depends(get_admin_user),
+) -> AdminUserRecord:
+    del admin
+    updated = persistence.update_user_flags(
+        user_id=user_id,
+        is_admin=request.is_admin,
+        is_active=request.is_active,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found.")
+    user = persistence.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return AdminUserRecord(
+        id=int(user["id"]),
+        email=user["email"],
+        created_at=user["created_at"],
+        is_admin=bool(user["is_admin"]),
+        is_active=bool(user["is_active"]),
+    )
+
+
+@router.delete("/api/v1/admin/users/{user_id}", status_code=204)
+def admin_delete_user(
+    user_id: int,
+    admin: dict = Depends(get_admin_user),
+) -> None:
+    if int(admin["id"]) == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account.")
+    deleted = persistence.delete_user_by_id(user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found.")

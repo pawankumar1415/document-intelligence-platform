@@ -34,7 +34,15 @@ def verify_credentials(email: str, password: str) -> dict[str, Any] | None:
     if not secrets.compare_digest(expected_hash, user["password_hash"]):
         return None
 
-    return {"id": int(user["id"]), "email": user["email"]}
+    if not user.get("is_active", 1):
+        raise HTTPException(status_code=403, detail="Account is deactivated.")
+
+    return {
+        "id": int(user["id"]),
+        "email": user["email"],
+        "is_admin": bool(user.get("is_admin", 0)),
+        "is_active": bool(user.get("is_active", 1)),
+    }
 
 
 def create_user_session(user_id: int) -> tuple[str, int]:
@@ -56,11 +64,23 @@ def get_user_from_bearer_token(authorization_header: str | None) -> dict[str, An
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired access token.")
 
-    return {"id": int(user["id"]), "email": user["email"]}
+    return {
+        "id": int(user["id"]),
+        "email": user["email"],
+        "is_admin": bool(user.get("is_admin", 0)),
+        "is_active": bool(user.get("is_active", 1)),
+    }
 
 
 def require_authenticated_user(authorization_header: str | None) -> dict[str, Any]:
     user = get_user_from_bearer_token(authorization_header)
     if not user:
         raise HTTPException(status_code=401, detail="Authorization required.")
+    return user
+
+
+def require_admin_user(authorization_header: str | None) -> dict[str, Any]:
+    user = require_authenticated_user(authorization_header)
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required.")
     return user
