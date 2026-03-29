@@ -1,4 +1,4 @@
-import { LayoutDashboard, Library, LogOut, Settings, Shield } from "lucide-react";
+import { LayoutDashboard, Library, LogOut, MessageSquare, Settings, Shield } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
@@ -38,6 +38,14 @@ const Sidebar = () => {
         </NavLink>
 
         <NavLink
+          to="/chat"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <MessageSquare size={16} />
+          Document Chat
+        </NavLink>
+
+        <NavLink
           to="/outputs"
           className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
         >
@@ -55,13 +63,15 @@ const Sidebar = () => {
           AI Settings
         </NavLink>
 
-        <NavLink
-          to="/admin"
-          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
-        >
-          <Shield size={16} />
-          Admin
-        </NavLink>
+        {user?.is_admin && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+          >
+            <Shield size={16} />
+            Admin
+          </NavLink>
+        )}
       </nav>
 
       {/* User + logout */}

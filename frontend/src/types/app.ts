@@ -93,6 +93,31 @@ export type OutputArtifact = GenerateResult & {
 export type AuthUser = {
   id: number;
   email: string;
+  is_admin?: boolean;
+  is_active?: boolean;
+};
+
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatRequest = {
+  question: string;
+  session_id?: string | null;
+  project_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+export type ChatResponse = {
+  answer: string;
+  session_id: string;
+  meta: {
+    intent: string;
+    context_length: number;
+    is_new_session: boolean;
+  };
 };
 
 export type AuthResponse = {

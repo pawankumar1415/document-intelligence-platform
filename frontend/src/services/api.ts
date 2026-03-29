@@ -1,5 +1,7 @@
 import type {
   AuthResponse,
+  ChatRequest,
+  ChatResponse,
   UseCaseAssessment,
   GeneratePptxRequest,
   GenerateResult,
@@ -164,6 +166,20 @@ export const summarizeDocument = async (
   options: AuthOptions,
 ): Promise<SummarizeResponse> => {
   return requestJson<SummarizeResponse>(`${API_BASE_URL}/api/v1/summarize`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(options.token),
+    },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const sendChatMessage = async (
+  payload: ChatRequest,
+  options: AuthOptions,
+): Promise<ChatResponse> => {
+  return requestJson<ChatResponse>(`${API_BASE_URL}/api/v1/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

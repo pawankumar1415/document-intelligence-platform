@@ -4,6 +4,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import Sidebar from "./components/Sidebar";
 import { AppStateProvider } from "./context/AppStateContext";
 import AdminView from "./views/AdminView";
+import ChatView from "./views/ChatView";
 import LoginView from "./views/LoginView";
 import OutputsView from "./views/OutputsView";
 import SettingsView from "./views/SettingsView";
@@ -28,6 +29,7 @@ function App() {
                   <Routes>
                     <Route path="/" element={<Navigate to="/studio" replace />} />
                     <Route path="/studio" element={<StudioView />} />
+                    <Route path="/chat" element={<ChatView />} />
                     <Route path="/outputs" element={<OutputsView />} />
                     <Route path="/settings" element={<SettingsView />} />
                     <Route path="/admin" element={<AdminView />} />
