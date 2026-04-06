@@ -264,3 +264,135 @@ class AdminUserUpdateRequest(BaseModel):
 class AuthUserProfileExtended(AuthUserProfile):
     is_admin: bool = False
     is_active: bool = True
+
+
+# ── Rubric schemas ─────────────────────────────────────────────────────────────
+
+class RubricCriterion(BaseModel):
+    id: int | None = None
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    severity: Literal["low", "medium", "high"] = "medium"
+    sort_order: int = 0
+
+
+class RubricRecord(BaseModel):
+    id: int
+    name: str
+    description: str
+    is_default: bool
+    created_at: str
+    updated_at: str
+    criteria: list[RubricCriterion] = Field(default_factory=list)
+
+
+class RubricSummary(BaseModel):
+    id: int
+    name: str
+    description: str
+    is_default: bool
+    created_at: str
+    updated_at: str
+
+
+class RubricCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    criteria: list[RubricCriterion] = Field(default_factory=list)
+
+
+# ── Validation schemas ─────────────────────────────────────────────────────────
+
+ValidationVerdict = Literal["PASS", "PASS_WITH_WARNINGS", "FAIL", "ERROR", "SKIPPED"]
+
+
+class ValidationLayer1(BaseModel):
+    compliance_score: float
+    issues: list[str] = Field(default_factory=list)
+    passed: list[str] = Field(default_factory=list)
+
+
+class ValidationLayer2(BaseModel):
+    consistency_issues: list[str] = Field(default_factory=list)
+    passed: list[str] = Field(default_factory=list)
+
+
+class ValidationMeta(BaseModel):
+    document_name: str
+    rubric_id: int
+    rubric_name: str
+    chunks_used: int = 0
+
+
+class ValidationResult(BaseModel):
+    overall_verdict: ValidationVerdict
+    layer1: ValidationLayer1
+    layer2: ValidationLayer2
+    rewritten_text: str = ""
+    meta: ValidationMeta
+
+
+class ValidateRequest(BaseModel):
+    text: str = Field(..., min_length=10)
+    document_name: str = Field(..., min_length=1)
+    rubric_id: int | None = None
+    llm_provider: LLMProvider = "openai"
+    llm_model: str | None = None
+
+
+class BatchValidateItem(BaseModel):
+    document_name: str
+    text: str
+
+
+class BatchValidateRequest(BaseModel):
+    items: list[BatchValidateItem] = Field(default_factory=list)
+    rubric_id: int | None = None
+    llm_provider: LLMProvider = "openai"
+    llm_model: str | None = None
+
+
+class BatchValidateResult(ValidationResult):
+    pass  # same shape, named separately for clarity
+
+
+class BatchValidateResponse(BaseModel):
+    total: int
+    rubric_name: str
+    results: list[BatchValidateResult] = Field(default_factory=list)
+
+
+# ── SharePoint schemas ─────────────────────────────────────────────────────────
+
+class SharePointSite(BaseModel):
+    id: str
+    name: str
+    web_url: str
+
+
+class SharePointLibrary(BaseModel):
+    id: str
+    name: str
+    web_url: str
+
+
+class SharePointFile(BaseModel):
+    id: str
+    name: str
+    size: int
+    last_modified: str
+    web_url: str
+    mime_type: str = ""
+    is_folder: bool = False
+
+
+class SharePointFilesResponse(BaseModel):
+    library_id: str
+    folder_path: str
+    items: list[SharePointFile] = Field(default_factory=list)
+
+
+class SharePointDownloadRequest(BaseModel):
+    library_id: str
+    item_id: str
+    filename: str

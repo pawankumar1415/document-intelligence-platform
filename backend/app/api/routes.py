@@ -12,6 +12,8 @@ from backend.app.models.schemas import (
     AuthResponse,
     AuthUserProfile,
     AuthUserProfileExtended,
+    BatchValidateRequest,
+    BatchValidateResponse,
     ChatRequest,
     ChatResponse,
     ChatMeta,
@@ -24,11 +26,21 @@ from backend.app.models.schemas import (
     ProviderCatalogResponse,
     ProjectCreateRequest,
     ProjectResponse,
+    RubricCreateRequest,
+    RubricRecord,
+    RubricSummary,
+    SharePointDownloadRequest,
+    SharePointFile,
+    SharePointFilesResponse,
+    SharePointLibrary,
+    SharePointSite,
     SummarizeRequest,
     SummarizeResponse,
     SummaryGroup,
     SummaryInsight,
     UseCaseAssessment,
+    ValidateRequest,
+    ValidationResult,
     VectorStatusResponse,
 )
 from backend.app.services import persistence
@@ -498,3 +510,237 @@ def admin_delete_user(
     deleted = persistence.delete_user_by_id(user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="User not found.")
+
+
+# ── Rubric endpoints ───────────────────────────────────────────────────────────
+
+@router.get("/api/v1/rubrics", response_model=list[RubricSummary])
+def list_rubrics(user: dict = Depends(get_required_user)) -> list[RubricSummary]:
+    user_id = int(user["id"])
+    persistence.ensure_default_rubric(user_id)
+    rubrics = persistence.list_rubrics(user_id)
+    return [RubricSummary(**r) for r in rubrics]
+
+
+@router.get("/api/v1/rubrics/{rubric_id}", response_model=RubricRecord)
+def get_rubric(rubric_id: int, user: dict = Depends(get_required_user)) -> RubricRecord:
+    rubric = persistence.get_rubric(rubric_id, int(user["id"]))
+    if not rubric:
+        raise HTTPException(status_code=404, detail="Rubric not found.")
+    return RubricRecord(**rubric)
+
+
+@router.post("/api/v1/rubrics", response_model=RubricRecord, status_code=201)
+def create_rubric_endpoint(request: RubricCreateRequest, user: dict = Depends(get_required_user)) -> RubricRecord:
+    rubric = persistence.create_rubric(
+        user_id=int(user["id"]),
+        name=request.name,
+        description=request.description,
+        criteria=[c.model_dump() for c in request.criteria],
+    )
+    return RubricRecord(**rubric)
+
+
+@router.delete("/api/v1/rubrics/{rubric_id}", status_code=204)
+def delete_rubric_endpoint(rubric_id: int, user: dict = Depends(get_required_user)) -> None:
+    deleted = persistence.delete_rubric(rubric_id, int(user["id"]))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Rubric not found or cannot delete the default rubric.")
+
+
+# ── Validation endpoints ───────────────────────────────────────────────────────
+
+@router.post("/api/v1/validate", response_model=ValidationResult)
+def validate_document(
+    request: ValidateRequest,
+    user: dict = Depends(get_required_user),
+) -> ValidationResult:
+    from backend.app.services.validation_service import run_validation
+    try:
+        result = run_validation(
+            text=request.text,
+            document_name=request.document_name,
+            user_id=int(user["id"]),
+            rubric_id=request.rubric_id,
+            provider=request.llm_provider,
+            model=request.llm_model,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return ValidationResult(**result)
+
+
+@router.post("/api/v1/validate/batch", response_model=BatchValidateResponse)
+async def validate_batch(
+    rubric_id: int | None = Form(default=None),
+    llm_provider: str = Form(default="openai"),
+    llm_model: str | None = Form(default=None),
+    file: UploadFile | None = File(default=None),
+    user: dict = Depends(get_required_user),
+) -> BatchValidateResponse:
+    from backend.app.services.excel_parser import parse_csv_for_batch, parse_excel_for_batch
+    from backend.app.services.validation_service import run_batch_validation
+
+    items: list[dict] = []
+
+    if file and file.filename:
+        raw_bytes = await file.read()
+        filename_lower = (file.filename or "").lower()
+        try:
+            if filename_lower.endswith((".xlsx", ".xls")):
+                items = parse_excel_for_batch(raw_bytes, filename=file.filename or "")
+            elif filename_lower.endswith(".csv"):
+                items = parse_csv_for_batch(raw_bytes)
+            else:
+                raise HTTPException(status_code=400, detail="Unsupported file type. Upload .xlsx, .xls, or .csv")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not items:
+        raise HTTPException(status_code=400, detail="No documents found in the uploaded file.")
+
+    try:
+        result = run_batch_validation(
+            items=items,
+            user_id=int(user["id"]),
+            rubric_id=rubric_id,
+            provider=llm_provider,  # type: ignore[arg-type]
+            model=llm_model,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return BatchValidateResponse(**result)
+
+
+# ── SharePoint endpoints ───────────────────────────────────────────────────────
+
+@router.get("/api/v1/sharepoint/status")
+def sharepoint_status(user: dict = Depends(get_required_user)) -> dict:
+    del user
+    from backend.app.services.sharepoint_service import is_configured
+    return {"configured": is_configured()}
+
+
+@router.get("/api/v1/sharepoint/sites", response_model=list[SharePointSite])
+def get_sharepoint_sites(user: dict = Depends(get_required_user)) -> list[SharePointSite]:
+    del user
+    from backend.app.services.sharepoint_service import list_sites
+    try:
+        sites = list_sites()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return [SharePointSite(**s) for s in sites]
+
+
+@router.get("/api/v1/sharepoint/libraries", response_model=list[SharePointLibrary])
+def get_sharepoint_libraries(
+    site_id: str | None = None,
+    user: dict = Depends(get_required_user),
+) -> list[SharePointLibrary]:
+    del user
+    from backend.app.services.sharepoint_service import list_libraries
+    try:
+        libraries = list_libraries(site_id=site_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return [SharePointLibrary(**lib) for lib in libraries]
+
+
+@router.get("/api/v1/sharepoint/files", response_model=SharePointFilesResponse)
+def get_sharepoint_files(
+    library_id: str,
+    folder_path: str = "/",
+    user: dict = Depends(get_required_user),
+) -> SharePointFilesResponse:
+    del user
+    from backend.app.services.sharepoint_service import list_files
+    try:
+        items = list_files(library_id=library_id, folder_path=folder_path)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return SharePointFilesResponse(
+        library_id=library_id,
+        folder_path=folder_path,
+        items=[SharePointFile(**item) for item in items],
+    )
+
+
+@router.post("/api/v1/sharepoint/download-and-parse", response_model=ParseResponse)
+async def sharepoint_download_and_parse(
+    request: SharePointDownloadRequest,
+    llm_provider: str = "openai",
+    project_id: int | None = None,
+    user: dict = Depends(get_required_user),
+) -> ParseResponse:
+    import io
+    from backend.app.services.sharepoint_service import download_file
+    from fastapi import UploadFile as FU
+
+    try:
+        file_bytes = download_file(library_id=request.library_id, item_id=request.item_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    upload = FU(filename=request.filename, file=io.BytesIO(file_bytes))
+
+    try:
+        parsed_document = await document_parser.parse_upload(upload)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    use_case_screening = screen_document_for_supported_use_cases(parsed_document)
+    use_case_assessment = UseCaseAssessment(
+        is_supported=use_case_screening.is_supported,
+        matched_use_cases=use_case_screening.matched_use_cases,
+        confidence=use_case_screening.confidence,
+        reasons=use_case_screening.reasons,
+    )
+    if not use_case_screening.is_supported:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unsupported_document",
+                "message": "This document does not match supported use cases.",
+                "assessment": use_case_assessment.model_dump(),
+            },
+        )
+
+    user_id = int(user["id"])
+    resolved_project_id = project_id
+    if resolved_project_id is not None:
+        project = persistence.get_project(resolved_project_id)
+        if not project or int(project["user_id"]) != user_id:
+            raise HTTPException(status_code=403, detail="Project not found for this user.")
+    else:
+        project = persistence.create_project(user_id=user_id, name=parsed_document.title or request.filename)
+        resolved_project_id = int(project["id"])
+
+    document_id = persistence.save_parsed_document(
+        user_id=user_id,
+        project_id=int(resolved_project_id),
+        document_payload=parsed_document.model_dump(),
+    )
+
+    chunks = chunk_text(parsed_document.text) or [parsed_document.text]
+    try:
+        embeddings = embed_documents(chunks)
+        upsert_chunks(
+            user_id=user_id,
+            project_id=int(resolved_project_id),
+            source_id=f"document:{document_id}",
+            provider=llm_provider,
+            chunks=chunks,
+            embeddings=embeddings,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Vector indexing failed: {exc}") from exc
+
+    return ParseResponse(
+        document=parsed_document,
+        use_case_assessment=use_case_assessment,
+        project_id=int(resolved_project_id),
+        document_id=int(document_id),
+    )
