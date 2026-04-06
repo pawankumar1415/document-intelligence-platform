@@ -1,6 +1,6 @@
 # BSBI Document Intelligence Platform
 
-BSBI Document Intelligence turns uploaded source documents into branded consulting deliverables. The current slice supports document parsing, vector indexing, grounded retrieval, switchable LLM-backed generation, and export of BSBI-styled `SOW` and `PPTX` outputs.
+BSBI Document Intelligence turns uploaded source documents into branded consulting deliverables, and validates project narrative quality against configurable standards with AI-powered feedback and rewrite suggestions.
 
 ## What The Product Does
 
@@ -10,6 +10,10 @@ BSBI Document Intelligence turns uploaded source documents into branded consulti
 - Chunk and index parsed content into PostgreSQL `pgvector`
 - Generate branded deliverables using a selectable LLM provider and model
 - Download generated `docx` and `pptx` artifacts
+- Chat with your project documents using RAG-backed conversational AI
+- Validate single documents against configurable quality rubrics with AI scoring and rewrite
+- Batch validate multiple documents from Excel/CSV upload or directly from SharePoint
+- Admin panel for user management
 
 ## Product Flow
 
@@ -39,7 +43,7 @@ flowchart LR
 
 ### Backend
 - `FastAPI`
-- `SQLite` for users, sessions, projects, documents, artifacts
+- `SQLite` for users, sessions, projects, documents, artifacts, chat history, rubrics, validation results
 - `PostgreSQL + pgvector` for vector search
 - Embeddings: local `sentence-transformers` or local `Ollama /api/embed`
 - PDF extraction: `Docling` with OCR + table structure
@@ -54,19 +58,56 @@ flowchart LR
 - `python-pptx` for branded presentation generation
 - BSBI logo and presentation styling applied during export
 
+## Features
+
+### Studio
+Upload documents, parse them, and generate branded SOW or PPTX deliverables. Supports `docx`, `pdf`, and `txt`. Generated artifacts are stored and downloadable.
+
+### Chat
+Conversational RAG interface. Ask questions about your project documents. Intent detection routes questions to either vector-search-backed answers or general LLM responses. Session history is preserved across the conversation.
+
+### Validate Document
+Single-document quality validation against a configurable rubric:
+- **Layer 1** — Structure and quality check against named criteria (score 0–10). Thresholds: PASS ≥8, PASS WITH WARNINGS ≥6, FAIL <6.
+- **Layer 2** — Internal consistency check for contradictions, date/figure conflicts.
+- **AI Rewrite** — LLM-generated corrected version with word-level diff highlighting.
+- Document can be typed manually, uploaded as a file, or pulled from SharePoint.
+- Rubrics are user-owned and fully configurable (name, description, severity per criterion).
+
+### Batch Validation
+Validate many documents in one run:
+- Upload an Excel (`.xlsx`) or CSV file, or browse and select a file from SharePoint.
+- Excel auto-detection: recognises the NDA MPPR multi-row format (no header, each project spans 2–3 rows) and generic tabular header-based format.
+- Results table shows per-document verdict, score, issues, and rewrite preview.
+- Export all results to CSV.
+
+### SharePoint Integration
+Browse and select files directly from a Microsoft SharePoint site:
+- Navigable folder tree with breadcrumb trail.
+- File metadata (size, last modified, type icons).
+- Used as an upload source in both Validate Document and Batch Validation.
+
+### Admin
+User management panel (admin-only):
+- View all registered users.
+- Activate / deactivate accounts.
+- Promote or demote admin status.
+- Delete users.
+
 ## Technology Matrix
 
 | Concern | Current Choice | Notes |
 |---|---|---|
 | Web UI | React + Vite + TypeScript | Separate dev server or backend-served build |
 | API | FastAPI | Single backend for auth, parsing, retrieval, generation |
-| App DB | SQLite | Local persistence for users/projects/artifacts |
+| App DB | SQLite | Local persistence for users/projects/artifacts/chat/rubrics |
 | Vector DB | PostgreSQL + pgvector | Local Docker setup recommended on Windows |
 | Embeddings | `huggingface_local` or `ollama` | Configurable via `EMBEDDING_BACKEND` |
 | Hugging Face options | `nomic-ai/nomic-embed-text-v1.5`, `BAAI/bge-m3`, `intfloat/multilingual-e5-large-instruct` | Local sentence-transformers path |
 | Ollama option | e.g. `qwen3-embedding:0.6b` | Uses local Ollama `/api/embed` |
 | Generation Providers | OpenAI, Groq, Ollama, Azure OpenAI | Frontend-selectable |
 | Azure Model Selection | Deployment names | Azure inference is deployment-based |
+| SharePoint | Microsoft Graph API via `msal` | App-only client credentials flow |
 
 ## Embedding Options
 
@@ -115,9 +156,61 @@ psql -h localhost -U postgres -d document_intelligence -c "CREATE EXTENSION IF N
 PGVECTOR_DSN=postgresql://postgres:postgres@localhost:5432/document_intelligence
 ```
 
+## SharePoint Setup
+
+SharePoint access uses Microsoft Graph API with an app-only client credentials flow. No user sign-in is required at runtime.
+
+### Prerequisites
+- An Azure subscription with access to the tenant that owns your SharePoint site.
+- Admin consent rights in that Azure AD tenant.
+
+### Steps
+
+1. **Switch to the correct Azure AD tenant** — the tenant must be the one that owns your SharePoint hostname (e.g. `yourcompany.sharepoint.com` lives in `yourcompany.onmicrosoft.com`).
+
+2. **Create an App Registration** in that tenant:
+   - Azure Portal → Azure Active Directory → App Registrations → New registration
+   - Name: anything (e.g. `Doc Platform`)
+   - Supported account types: Single tenant
+   - Copy the **Application (client) ID** → `SHAREPOINT_CLIENT_ID`
+   - Copy the **Directory (tenant) ID** → `SHAREPOINT_TENANT_ID`
+
+3. **Create a client secret**:
+   - App Registration → Certificates & Secrets → New client secret
+   - Copy the **Value** (not the ID) → `SHAREPOINT_CLIENT_SECRET`
+
+4. **Grant API permissions**:
+   - App Registration → API Permissions → Add a permission → Microsoft Graph → Application permissions
+   - Add `Sites.Read.All`
+   - Add `Files.Read.All`
+   - Click **Grant admin consent**
+
+5. **Add to `.env`**:
+
+```env
+SHAREPOINT_TENANT_ID=<Directory (tenant) ID>
+SHAREPOINT_CLIENT_ID=<Application (client) ID>
+SHAREPOINT_CLIENT_SECRET=<Client secret value>
+SHAREPOINT_SITE_URL=https://yourcompany.sharepoint.com/sites/yoursite
+```
+
+6. Install the required Python library:
+
+```bash
+pip install msal
+```
+
+The SharePoint picker in the UI will show a "not configured" state until all four values are set to real (non-placeholder) values.
+
+### Troubleshooting: `Invalid hostname for this tenancy`
+
+This error means the App Registration is in a different Azure AD tenant than the one that owns the SharePoint site. The app authenticates against the wrong tenant and Graph rejects the site lookup.
+
+Fix: ensure `SHAREPOINT_TENANT_ID` is the Directory ID of the tenant that owns the SharePoint hostname, and that the App Registration was created in that same tenant. See the steps above.
+
 ## Configuration
 
-Copy [.env.example](./.env.example) to `.env` and fill real secrets locally.
+Copy `.env.example` to `.env` and fill real secrets locally.
 
 Core settings:
 
@@ -150,6 +243,12 @@ AZURE_OPENAI_API_KEY=...
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
 AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4o-mini
 AZURE_OPENAI_CHAT_DEPLOYMENTS_JSON=[{"id":"gpt-4o-mini","label":"GPT-4o Mini Deployment"}]
+
+# SharePoint (optional — leave as placeholders to disable)
+SHAREPOINT_TENANT_ID=YOUR_TENANT_ID_HERE
+SHAREPOINT_CLIENT_ID=YOUR_CLIENT_ID_HERE
+SHAREPOINT_CLIENT_SECRET=YOUR_CLIENT_SECRET_HERE
+SHAREPOINT_SITE_URL=https://yourtenant.sharepoint.com/sites/yoursite
 ```
 
 Vector-store mismatch note:
@@ -160,6 +259,26 @@ Vector-store mismatch note:
 Security note:
 - `.env` is ignored by git
 - If any real secret has already been stored in `.env`, rotate it before sharing the repo
+
+## Python Dependencies
+
+Install all Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+For SharePoint support, also install:
+
+```bash
+pip install msal
+```
+
+For Excel batch validation support (already in requirements if pandas is listed):
+
+```bash
+pip install pandas openpyxl
+```
 
 ## Running The Project
 
@@ -193,7 +312,7 @@ uvicorn backend.app.main:app --reload
 
 Open `http://localhost:8000`.
 
-Both routes are login-first.
+Both routes are login-first. The first registered user automatically becomes an admin.
 
 ## End-To-End Local Test
 
@@ -230,6 +349,9 @@ uvicorn backend.app.main:app --reload
 - Generate SOW
 - Generate PPT
 - Download artifacts
+- Open Chat and ask a question about the document
+- Open Validate Document, paste text, run validation
+- Open Batch Validation, upload an Excel file, run batch
 
 7. Optional backend test suite:
 
@@ -290,6 +412,31 @@ ollama pull mxbai-embed-large
 - `GET /api/v1/artifacts`
 - `GET /api/v1/artifacts/{artifact_name}`
 
+### Chat
+- `POST /api/v1/chat`
+
+### Rubrics
+- `GET /api/v1/rubrics`
+- `POST /api/v1/rubrics`
+- `GET /api/v1/rubrics/{id}`
+- `DELETE /api/v1/rubrics/{id}`
+
+### Validation
+- `POST /api/v1/validate`
+- `POST /api/v1/validate/batch`
+
+### SharePoint
+- `GET /api/v1/sharepoint/status`
+- `GET /api/v1/sharepoint/sites`
+- `GET /api/v1/sharepoint/libraries`
+- `GET /api/v1/sharepoint/files`
+- `POST /api/v1/sharepoint/download-and-parse`
+
+### Admin
+- `GET /api/v1/admin/users`
+- `PATCH /api/v1/admin/users/{id}`
+- `DELETE /api/v1/admin/users/{id}`
+
 ### Health
 - `GET /health`
 
@@ -297,6 +444,18 @@ ollama pull mxbai-embed-large
 
 ```text
 backend/                 FastAPI app, parsing, retrieval, generation, persistence
+  app/
+    api/routes.py        All API endpoints
+    models/schemas.py    Pydantic request/response models
+    services/
+      auth_service.py    Authentication, session tokens
+      chat_service.py    RAG chat pipeline
+      validation_service.py  Two-layer document validation
+      sharepoint_service.py  Microsoft Graph API / SharePoint
+      excel_parser.py    Excel/CSV batch parsing (MPPR + generic)
+      llm_provider.py    Multi-provider LLM abstraction
+      persistence.py     SQLite schema and CRUD
+  rag_function_reference/  Reference implementation (NDA MPPR ingest/validate)
 frontend/                React app
 Documentation/           Plans, spec, work log
 logo/                    Brand assets
@@ -304,18 +463,23 @@ logo/                    Brand assets
 
 ## Current Scope
 
-Included now:
-- Login/register
-- Project-scoped parsing
+Included:
+- Login/register (first user becomes admin)
+- Project-scoped parsing (docx, pdf, txt)
 - Local embeddings + pgvector retrieval
 - Dynamic provider/model catalog
 - Branded SOW and PPT generation
+- RAG chat with session memory
+- Configurable rubric-based document validation (single + batch)
+- SharePoint file browser integration
+- Excel auto-detection (NDA MPPR multi-row format + generic tabular)
+- Admin user management panel
 
 Not included yet:
-- `xlsx` and image ingestion
-- background job queue
-- enterprise SSO
-- collaborative editing
+- Background job queue for long-running batch jobs
+- Enterprise SSO
+- Collaborative editing
+- Image ingestion
 
 ## Documentation
 
