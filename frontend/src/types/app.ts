@@ -195,3 +195,108 @@ export type SummarizeResponse = {
   insights: SummaryInsight[];
   summary_line: string;
 };
+
+// ── Rubric types ──────────────────────────────────────────────────────────────
+
+export type RubricSeverity = "low" | "medium" | "high";
+
+export type RubricCriterion = {
+  id?: number;
+  name: string;
+  description: string;
+  severity: RubricSeverity;
+  sort_order: number;
+};
+
+export type RubricSummary = {
+  id: number;
+  name: string;
+  description: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RubricRecord = RubricSummary & {
+  criteria: RubricCriterion[];
+};
+
+export type RubricCreateRequest = {
+  name: string;
+  description: string;
+  criteria: RubricCriterion[];
+};
+
+// ── Validation types ──────────────────────────────────────────────────────────
+
+export type ValidationVerdict = "PASS" | "PASS_WITH_WARNINGS" | "FAIL" | "ERROR" | "SKIPPED";
+
+export type ValidationLayer1 = {
+  compliance_score: number;
+  issues: string[];
+  passed: string[];
+};
+
+export type ValidationLayer2 = {
+  consistency_issues: string[];
+  passed: string[];
+};
+
+export type ValidationMeta = {
+  document_name: string;
+  rubric_id: number;
+  rubric_name: string;
+  chunks_used: number;
+};
+
+export type ValidationResult = {
+  overall_verdict: ValidationVerdict;
+  layer1: ValidationLayer1;
+  layer2: ValidationLayer2;
+  rewritten_text: string;
+  meta: ValidationMeta;
+};
+
+export type ValidateRequest = {
+  text: string;
+  document_name: string;
+  rubric_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+export type BatchValidateResponse = {
+  total: number;
+  rubric_name: string;
+  results: ValidationResult[];
+};
+
+// ── SharePoint types ──────────────────────────────────────────────────────────
+
+export type SharePointSite = {
+  id: string;
+  name: string;
+  web_url: string;
+};
+
+export type SharePointLibrary = {
+  id: string;
+  name: string;
+  web_url: string;
+};
+
+export type SharePointFile = {
+  id: string;
+  name: string;
+  size: number;
+  last_modified: string;
+  web_url: string;
+  mime_type: string;
+  is_folder: boolean;
+};
+
+export type SharePointFilesResponse = {
+  library_id: string;
+  folder_path: string;
+  items: SharePointFile[];
+};

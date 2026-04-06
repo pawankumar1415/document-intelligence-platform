@@ -1,4 +1,4 @@
-import { LayoutDashboard, Library, LogOut, MessageSquare, Settings, Shield } from "lucide-react";
+import { ClipboardCheck, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
@@ -51,6 +51,24 @@ const Sidebar = () => {
         >
           <Library size={16} />
           Output Library
+        </NavLink>
+
+        <span className="nav-section-label">Validation</span>
+
+        <NavLink
+          to="/validate"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <ClipboardCheck size={16} />
+          Validate Document
+        </NavLink>
+
+        <NavLink
+          to="/batch-validate"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <Layers size={16} />
+          Batch Validation
         </NavLink>
 
         <span className="nav-section-label">Configuration</span>

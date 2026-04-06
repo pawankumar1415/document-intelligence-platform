@@ -1,5 +1,6 @@
 import type {
   AuthResponse,
+  BatchValidateResponse,
   ChatRequest,
   ChatResponse,
   UseCaseAssessment,
@@ -10,8 +11,16 @@ import type {
   EmbeddingCatalog,
   ParseResponse,
   ProviderCatalogResponse,
+  RubricCreateRequest,
+  RubricRecord,
+  RubricSummary,
+  SharePointLibrary,
+  SharePointFilesResponse,
+  SharePointSite,
   SummarizeRequest,
   SummarizeResponse,
+  ValidateRequest,
+  ValidationResult,
 } from "../types/app";
 
 export const API_BASE_URL =
@@ -185,6 +194,117 @@ export const sendChatMessage = async (
       "Content-Type": "application/json",
       ...authHeaders(options.token),
     },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Rubric API ────────────────────────────────────────────────────────────────
+
+export const listRubrics = async (options: AuthOptions): Promise<RubricSummary[]> => {
+  return requestJson<RubricSummary[]>(`${API_BASE_URL}/api/v1/rubrics`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const getRubric = async (rubricId: number, options: AuthOptions): Promise<RubricRecord> => {
+  return requestJson<RubricRecord>(`${API_BASE_URL}/api/v1/rubrics/${rubricId}`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const createRubric = async (
+  payload: RubricCreateRequest,
+  options: AuthOptions,
+): Promise<RubricRecord> => {
+  return requestJson<RubricRecord>(`${API_BASE_URL}/api/v1/rubrics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const deleteRubric = async (rubricId: number, options: AuthOptions): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/rubrics/${rubricId}`, {
+    method: "DELETE",
+    headers: authHeaders(options.token),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ApiError(response.status, detail, null);
+  }
+};
+
+// ── Validation API ────────────────────────────────────────────────────────────
+
+export const validateDocument = async (
+  payload: ValidateRequest,
+  options: AuthOptions,
+): Promise<ValidationResult> => {
+  return requestJson<ValidationResult>(`${API_BASE_URL}/api/v1/validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const validateBatch = async (
+  file: File,
+  options: AuthOptions & { rubricId?: number | null; llmProvider?: string; llmModel?: string | null },
+): Promise<BatchValidateResponse> => {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("llm_provider", options.llmProvider ?? "openai");
+  if (options.rubricId != null) form.append("rubric_id", String(options.rubricId));
+  if (options.llmModel) form.append("llm_model", options.llmModel);
+  return requestJson<BatchValidateResponse>(`${API_BASE_URL}/api/v1/validate/batch`, {
+    method: "POST",
+    headers: authHeaders(options.token),
+    body: form,
+  });
+};
+
+// ── SharePoint API ────────────────────────────────────────────────────────────
+
+export const getSharePointStatus = async (options: AuthOptions): Promise<{ configured: boolean }> => {
+  return requestJson<{ configured: boolean }>(`${API_BASE_URL}/api/v1/sharepoint/status`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const getSharePointSites = async (options: AuthOptions): Promise<SharePointSite[]> => {
+  return requestJson<SharePointSite[]>(`${API_BASE_URL}/api/v1/sharepoint/sites`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const getSharePointLibraries = async (
+  siteId: string | null,
+  options: AuthOptions,
+): Promise<SharePointLibrary[]> => {
+  const url = siteId
+    ? `${API_BASE_URL}/api/v1/sharepoint/libraries?site_id=${encodeURIComponent(siteId)}`
+    : `${API_BASE_URL}/api/v1/sharepoint/libraries`;
+  return requestJson<SharePointLibrary[]>(url, { headers: authHeaders(options.token) });
+};
+
+export const getSharePointFiles = async (
+  libraryId: string,
+  folderPath: string,
+  options: AuthOptions,
+): Promise<SharePointFilesResponse> => {
+  const url = `${API_BASE_URL}/api/v1/sharepoint/files?library_id=${encodeURIComponent(libraryId)}&folder_path=${encodeURIComponent(folderPath)}`;
+  return requestJson<SharePointFilesResponse>(url, { headers: authHeaders(options.token) });
+};
+
+export const sharePointDownloadAndParse = async (
+  payload: { library_id: string; item_id: string; filename: string },
+  options: AuthOptions & { projectId?: number | null; llmProvider?: string },
+): Promise<import("../types/app").ParseResponse> => {
+  const params = new URLSearchParams({ llm_provider: options.llmProvider ?? "openai" });
+  if (options.projectId != null) params.set("project_id", String(options.projectId));
+  return requestJson(`${API_BASE_URL}/api/v1/sharepoint/download-and-parse?${params}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
     body: JSON.stringify(payload),
   });
 };
