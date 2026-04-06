@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-docx
+python-pptx
+python-multipart
+pytest
+python-dotenv
+openai
+groq
+psycopg[binary]
+sentence-transformers
+docling
+rapidocr_onnxruntime
+einops
