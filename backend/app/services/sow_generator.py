@@ -35,6 +35,9 @@ Rules:
 - Every paragraph MUST be 2-3 sentences. No filler. No generic platitudes.
 - Bullets MUST be actionable, specific, and under 20 words each.
 - Ground every claim in the source material provided. If information is missing, write "To be confirmed during discovery" — never invent facts.
+- table_rows for the Deliverables section MUST be non-empty. Provide at least 4 rows even if you must infer deliverables from the scope described.
+- table_rows for the Timeline and Milestones section MUST be non-empty. Provide at least 3 rows using phases or timelines described in the source.
+- Never write "% reduction" or "% improvement" without the actual number preceding it. Carry specific percentages and figures verbatim from the source into the Governance success criteria bullets. If no figure is stated in the source, write "To be confirmed during discovery".
 - Return ONLY valid JSON. No markdown, no commentary outside JSON.
 """
 
@@ -61,10 +64,10 @@ Generate 8 sections in this order:
 2. Project Objectives — 1 paragraph, 4-6 bullets listing measurable objectives
 3. Scope of Work — 1 paragraph defining boundaries, 4-6 bullets for in-scope items
 4. Solution Approach — 2 paragraphs on methodology and architecture, 3-4 bullets
-5. Deliverables — 1 paragraph, then table_rows with columns ["Deliverable", "Description"] for 4-6 deliverables
-6. Timeline and Milestones — 1 paragraph, then table_rows with columns ["Phase", "Activities", "Duration"] for 3-5 phases
+5. Deliverables — 1 paragraph, then table_rows with columns ["Deliverable", "Description"] for 4-6 deliverables. table_rows MUST contain at least 4 rows — never return an empty array.
+6. Timeline and Milestones — 1 paragraph, then table_rows with columns ["Phase", "Activities", "Duration"] for 3-5 phases. table_rows MUST contain at least 3 rows — never return an empty array. Use durations stated in the source or write "TBC" if not specified.
 7. Assumptions and Dependencies — no paragraphs, 5-8 bullets
-8. Governance and Success Criteria — 1 paragraph on governance, 3-5 bullets on success metrics
+8. Governance and Success Criteria — 1 paragraph on governance, 3-5 bullets each stating a specific, measurable success metric. Use exact numbers from the source (e.g. "Reduce document search time by 40% within 6 months"). If no figure is given, write "To be confirmed during discovery" rather than a bare "% reduction" placeholder.
 
 Client: {client_name}
 Project: {project_name}
@@ -225,7 +228,36 @@ class SowGenerator:
                         table_rows=table_rows,
                     )
                 )
-            return sections or None
+            # ── Post-process: synthesise missing table_rows ─────────────────
+            # If the LLM omits table_rows for Deliverables or Timeline sections
+            # despite the prompt instruction, build them from the bullets so
+            # the document always renders a proper table.
+            final_sections: list[GeneratedSection] = []
+            for sec in sections:
+                title_lower = sec.title.lower()
+                table_rows = list(sec.table_rows)
+
+                if not table_rows and sec.bullets:
+                    if any(kw in title_lower for kw in ("deliverable", "output", "artifact")):
+                        table_rows = [
+                            [b, "To be confirmed during project planning."]
+                            for b in sec.bullets[:6]
+                        ]
+                    elif any(kw in title_lower for kw in ("timeline", "milestone", "phase", "schedule")):
+                        table_rows = [
+                            [f"Phase {i + 1}", b, "TBC"]
+                            for i, b in enumerate(sec.bullets[:5])
+                        ]
+
+                final_sections.append(
+                    GeneratedSection(
+                        title=sec.title,
+                        paragraphs=sec.paragraphs,
+                        bullets=sec.bullets,
+                        table_rows=table_rows,
+                    )
+                )
+            return final_sections or None
         except Exception:
             return None
 
