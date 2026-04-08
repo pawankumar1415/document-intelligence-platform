@@ -300,3 +300,162 @@ export type SharePointFilesResponse = {
   folder_path: string;
   items: SharePointFile[];
 };
+
+// ── Comparison types ──────────────────────────────────────────────────────────
+
+export type CompareRequest = {
+  doc_a_name: string;
+  doc_a_text: string;
+  doc_b_name: string;
+  doc_b_text: string;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+export type ComparisonChange = {
+  section: string;
+  change_type: "added" | "removed" | "improved" | "regressed" | "unchanged";
+  details: string;
+};
+
+export type ComparisonResult = {
+  summary: string;
+  overall_sentiment: "improved" | "regressed" | "neutral";
+  doc_a_score: number;
+  doc_b_score: number;
+  key_improvements: string[];
+  key_regressions: string[];
+  changes: ComparisonChange[];
+  doc_a_name: string;
+  doc_b_name: string;
+};
+
+// ── Extraction types ──────────────────────────────────────────────────────────
+
+export type ExtractionSchemaField = {
+  name: string;
+  description: string;
+  required: boolean;
+};
+
+export type ExtractionSchemaSummary = {
+  id: number;
+  name: string;
+  description: string;
+  entity_label: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ExtractionSchemaRecord = ExtractionSchemaSummary & {
+  fields: ExtractionSchemaField[];
+};
+
+export type ExtractionSchemaCreateRequest = {
+  name: string;
+  description: string;
+  entity_label: string;
+  fields: ExtractionSchemaField[];
+};
+
+export type ExtractRequest = {
+  document_name: string;
+  text: string;
+  schema_id: number;
+  project_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+export type ExtractionResult = {
+  schema_name: string;
+  entity_label: string;
+  field_names: string[];
+  rows: string[][];
+  artifact_name: string;
+  download_url: string;
+  total_extracted: number;
+};
+
+// ── Analytics types ───────────────────────────────────────────────────────────
+
+export type AnalyticsOverview = {
+  total_documents: number;
+  total_artifacts: number;
+  total_validations: number;
+  avg_compliance_score: number;
+  pass_rate: number;
+  total_clauses: number;
+};
+
+export type ValidationTrendPoint = {
+  date: string;
+  avg_score: number;
+  count: number;
+  pass_count: number;
+};
+
+export type CommonIssue = {
+  issue: string;
+  count: number;
+};
+
+export type ActivityItem = {
+  activity_type: "document" | "artifact" | "validation" | "clause";
+  name: string;
+  created_at: string;
+  details: string;
+};
+
+export type AnalyticsDashboard = {
+  overview: AnalyticsOverview;
+  validation_trends: ValidationTrendPoint[];
+  common_issues: CommonIssue[];
+  recent_activity: ActivityItem[];
+};
+
+// ── Clause types ──────────────────────────────────────────────────────────────
+
+export type ClauseRecord = {
+  id: number;
+  title: string;
+  content: string;
+  tags: string[];
+  source_doc: string;
+  project_id?: number | null;
+  created_at: string;
+};
+
+export type ClauseCreateRequest = {
+  title: string;
+  content: string;
+  tags: string[];
+  source_doc: string;
+  project_id?: number | null;
+};
+
+export type ClauseAutoExtractRequest = {
+  document_name: string;
+  text: string;
+  project_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+export type ClauseSearchResponse = {
+  query: string;
+  results: ClauseRecord[];
+};
+
+// ── Bid types ─────────────────────────────────────────────────────────────────
+
+export type GenerateBidRequest = {
+  client_name: string;
+  opportunity_title: string;
+  source_document: DocumentInput;
+  our_strengths: string[];
+  project_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};

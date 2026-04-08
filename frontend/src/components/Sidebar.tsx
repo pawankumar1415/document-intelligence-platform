@@ -1,4 +1,4 @@
-import { ClipboardCheck, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield } from "lucide-react";
+import { ArrowUpDown, BarChart2, BookOpen, ClipboardCheck, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield, Table2 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
@@ -53,6 +53,30 @@ const Sidebar = () => {
           Output Library
         </NavLink>
 
+        <NavLink
+          to="/compare"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <ArrowUpDown size={16} />
+          Compare Docs
+        </NavLink>
+
+        <NavLink
+          to="/extract"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <Table2 size={16} />
+          Extract Data
+        </NavLink>
+
+        <NavLink
+          to="/clauses"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <BookOpen size={16} />
+          Clause Library
+        </NavLink>
+
         <span className="nav-section-label">Validation</span>
 
         <NavLink
@@ -69,6 +93,16 @@ const Sidebar = () => {
         >
           <Layers size={16} />
           Batch Validation
+        </NavLink>
+
+        <span className="nav-section-label">Insights</span>
+
+        <NavLink
+          to="/analytics"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <BarChart2 size={16} />
+          Analytics
         </NavLink>
 
         <span className="nav-section-label">Configuration</span>

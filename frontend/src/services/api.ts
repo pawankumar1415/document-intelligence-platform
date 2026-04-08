@@ -1,9 +1,21 @@
 import type {
+  AnalyticsDashboard,
   AuthResponse,
   BatchValidateResponse,
   ChatRequest,
   ChatResponse,
-  UseCaseAssessment,
+  ClauseAutoExtractRequest,
+  ClauseCreateRequest,
+  ClauseRecord,
+  ClauseSearchResponse,
+  CompareRequest,
+  ComparisonResult,
+  ExtractionResult,
+  ExtractionSchemaCreateRequest,
+  ExtractionSchemaRecord,
+  ExtractionSchemaSummary,
+  ExtractRequest,
+  GenerateBidRequest,
   GeneratePptxRequest,
   GenerateResult,
   GenerateSowRequest,
@@ -19,6 +31,7 @@ import type {
   SharePointSite,
   SummarizeRequest,
   SummarizeResponse,
+  UseCaseAssessment,
   ValidateRequest,
   ValidationResult,
 } from "../types/app";
@@ -343,3 +356,128 @@ export const downloadArtifact = async (
   anchor.remove();
   URL.revokeObjectURL(objectUrl);
 };
+
+// ── Bid API ───────────────────────────────────────────────────────────────────
+
+export const generateBid = async (
+  payload: GenerateBidRequest,
+  options: AuthOptions,
+): Promise<GenerateResult> => {
+  return requestJson<GenerateResult>(`${API_BASE_URL}/api/v1/generate/bid`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Comparison API ────────────────────────────────────────────────────────────
+
+export const compareDocuments = async (
+  payload: CompareRequest,
+  options: AuthOptions,
+): Promise<ComparisonResult> => {
+  return requestJson<ComparisonResult>(`${API_BASE_URL}/api/v1/compare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Extraction schema API ─────────────────────────────────────────────────────
+
+export const listExtractionSchemas = async (options: AuthOptions): Promise<ExtractionSchemaSummary[]> => {
+  return requestJson<ExtractionSchemaSummary[]>(`${API_BASE_URL}/api/v1/extraction-schemas`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const getExtractionSchema = async (schemaId: number, options: AuthOptions): Promise<ExtractionSchemaRecord> => {
+  return requestJson<ExtractionSchemaRecord>(`${API_BASE_URL}/api/v1/extraction-schemas/${schemaId}`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const createExtractionSchema = async (
+  payload: ExtractionSchemaCreateRequest,
+  options: AuthOptions,
+): Promise<ExtractionSchemaRecord> => {
+  return requestJson<ExtractionSchemaRecord>(`${API_BASE_URL}/api/v1/extraction-schemas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const deleteExtractionSchema = async (schemaId: number, options: AuthOptions): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/extraction-schemas/${schemaId}`, {
+    method: "DELETE",
+    headers: authHeaders(options.token),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text(), null);
+};
+
+export const extractStructuredData = async (
+  payload: ExtractRequest,
+  options: AuthOptions,
+): Promise<ExtractionResult> => {
+  return requestJson<ExtractionResult>(`${API_BASE_URL}/api/v1/extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Analytics API ─────────────────────────────────────────────────────────────
+
+export const getAnalytics = async (options: AuthOptions): Promise<AnalyticsDashboard> => {
+  return requestJson<AnalyticsDashboard>(`${API_BASE_URL}/api/v1/analytics`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+// ── Clause Library API ────────────────────────────────────────────────────────
+
+export const listClauses = async (options: AuthOptions & { projectId?: number | null }): Promise<ClauseRecord[]> => {
+  const url = options.projectId
+    ? `${API_BASE_URL}/api/v1/clauses?project_id=${options.projectId}`
+    : `${API_BASE_URL}/api/v1/clauses`;
+  return requestJson<ClauseRecord[]>(url, { headers: authHeaders(options.token) });
+};
+
+export const createClause = async (
+  payload: ClauseCreateRequest,
+  options: AuthOptions,
+): Promise<ClauseRecord> => {
+  return requestJson<ClauseRecord>(`${API_BASE_URL}/api/v1/clauses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const deleteClause = async (clauseId: number, options: AuthOptions): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/clauses/${clauseId}`, {
+    method: "DELETE",
+    headers: authHeaders(options.token),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text(), null);
+};
+
+export const searchClauses = async (q: string, options: AuthOptions): Promise<ClauseSearchResponse> => {
+  return requestJson<ClauseSearchResponse>(
+    `${API_BASE_URL}/api/v1/clauses/search?q=${encodeURIComponent(q)}`,
+    { headers: authHeaders(options.token) },
+  );
+};
+
+export const autoExtractClauses = async (
+  payload: ClauseAutoExtractRequest,
+  options: AuthOptions,
+): Promise<ClauseRecord[]> => {
+  return requestJson<ClauseRecord[]>(`${API_BASE_URL}/api/v1/clauses/auto-extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
