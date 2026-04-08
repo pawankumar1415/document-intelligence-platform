@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from backend.app.models.schemas import (
     AdminUserRecord,
     AdminUserUpdateRequest,
+    AnalyticsDashboard,
     ArtifactRecord,
     AuthLoginRequest,
     AuthRegisterRequest,
@@ -17,8 +18,20 @@ from backend.app.models.schemas import (
     ChatRequest,
     ChatResponse,
     ChatMeta,
+    ClauseAutoExtractRequest,
+    ClauseCreateRequest,
+    ClauseRecord,
+    ClauseSearchResponse,
+    CompareRequest,
+    ComparisonResult,
     EmbeddingConfigUpdateRequest,
     EmbeddingCatalog,
+    ExtractRequest,
+    ExtractionResult,
+    ExtractionSchemaCreateRequest,
+    ExtractionSchemaRecord,
+    ExtractionSchemaSummary,
+    GenerateBidRequest,
     GeneratePptxRequest,
     GenerateResult,
     GenerateSowRequest,
@@ -62,6 +75,7 @@ from backend.app.services.embedding_service import (
 )
 from backend.app.services.file_utils import OUTPUT_DIR
 from backend.app.services.document_parser import DocumentParser
+from backend.app.services.bid_generator import BidGenerator
 from backend.app.services.ppt_generator import PptGenerator
 from backend.app.services.provider_catalog import get_provider_catalog, resolve_chat_model
 from backend.app.services.summarization_service import summarize_document
@@ -80,6 +94,7 @@ router = APIRouter()
 document_parser = DocumentParser()
 sow_generator = SowGenerator()
 ppt_generator = PptGenerator()
+bid_generator = BidGenerator()
 
 
 def get_required_user(authorization: str | None = Header(default=None)) -> dict:
@@ -744,3 +759,206 @@ async def sharepoint_download_and_parse(
         project_id=int(resolved_project_id),
         document_id=int(document_id),
     )
+
+
+# ── Bid generation endpoint ────────────────────────────────────────────────────
+
+@router.post("/api/v1/generate/bid", response_model=GenerateResult)
+def generate_bid(
+    request: GenerateBidRequest,
+    user: dict = Depends(get_required_user),
+) -> GenerateResult:
+    user_id = int(user["id"])
+    resolved_project_id = request.project_id
+    if resolved_project_id is not None:
+        project = persistence.get_project(resolved_project_id)
+        if not project or int(project["user_id"]) != user_id:
+            raise HTTPException(status_code=403, detail="Project not found for this user.")
+    else:
+        project = persistence.create_project(user_id=user_id, name=request.opportunity_title)
+        resolved_project_id = int(project["id"])
+
+    retrieval_context: list[str] = []
+    try:
+        request.llm_model = resolve_chat_model(request.llm_provider, request.llm_model)
+        query_embedding = embed_query(request.source_document.text[:1500])
+        matches = query_similar_chunks(
+            user_id=user_id,
+            project_id=int(resolved_project_id),
+            query_embedding=query_embedding,
+            limit=5,
+        )
+        retrieval_context = [match.content for match in matches]
+    except Exception:
+        retrieval_context = []
+
+    result = bid_generator.generate(request, retrieval_context=retrieval_context)
+    artifact_id = persistence.save_artifact(
+        user_id=user_id,
+        project_id=int(resolved_project_id),
+        artifact_payload=result.model_dump(),
+    )
+    result.project_id = int(resolved_project_id)
+    result.artifact_id = int(artifact_id)
+    return result
+
+
+# ── Comparison endpoint ────────────────────────────────────────────────────────
+
+@router.post("/api/v1/compare", response_model=ComparisonResult)
+def compare_documents_endpoint(
+    request: CompareRequest,
+    user: dict = Depends(get_required_user),
+) -> ComparisonResult:
+    from backend.app.services.comparison_service import compare_documents
+    del user
+    try:
+        return compare_documents(request)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Comparison failed: {exc}") from exc
+
+
+# ── Extraction schema endpoints ────────────────────────────────────────────────
+
+@router.get("/api/v1/extraction-schemas", response_model=list[ExtractionSchemaSummary])
+def list_extraction_schemas_endpoint(user: dict = Depends(get_required_user)) -> list[ExtractionSchemaSummary]:
+    user_id = int(user["id"])
+    persistence.ensure_default_extraction_schemas(user_id)
+    schemas = persistence.list_extraction_schemas(user_id)
+    return [ExtractionSchemaSummary(**{k: v for k, v in s.items() if k != "fields"}) for s in schemas]
+
+
+@router.get("/api/v1/extraction-schemas/{schema_id}", response_model=ExtractionSchemaRecord)
+def get_extraction_schema_endpoint(schema_id: int, user: dict = Depends(get_required_user)) -> ExtractionSchemaRecord:
+    schema = persistence.get_extraction_schema(schema_id, int(user["id"]))
+    if not schema:
+        raise HTTPException(status_code=404, detail="Extraction schema not found.")
+    return ExtractionSchemaRecord(**schema)
+
+
+@router.post("/api/v1/extraction-schemas", response_model=ExtractionSchemaRecord, status_code=201)
+def create_extraction_schema_endpoint(
+    request: ExtractionSchemaCreateRequest,
+    user: dict = Depends(get_required_user),
+) -> ExtractionSchemaRecord:
+    schema = persistence.create_extraction_schema(
+        user_id=int(user["id"]),
+        name=request.name,
+        description=request.description,
+        entity_label=request.entity_label,
+        fields=[f.model_dump() for f in request.fields],
+    )
+    return ExtractionSchemaRecord(**schema)
+
+
+@router.delete("/api/v1/extraction-schemas/{schema_id}", status_code=204)
+def delete_extraction_schema_endpoint(schema_id: int, user: dict = Depends(get_required_user)) -> None:
+    deleted = persistence.delete_extraction_schema(schema_id, int(user["id"]))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Schema not found or cannot delete a built-in schema.")
+
+
+@router.post("/api/v1/extract", response_model=ExtractionResult)
+def extract_structured_data(
+    request: ExtractRequest,
+    user: dict = Depends(get_required_user),
+) -> ExtractionResult:
+    from backend.app.services.extractor_service import run_extraction
+    user_id = int(user["id"])
+    try:
+        result = run_extraction(request, user_id=user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Extraction failed: {exc}") from exc
+
+    if request.project_id:
+        project = persistence.get_project(request.project_id)
+        if project and int(project["user_id"]) == user_id:
+            persistence.save_artifact(
+                user_id=user_id,
+                project_id=request.project_id,
+                artifact_payload={
+                    "artifact_type": "register",
+                    "file_path": str(OUTPUT_DIR / result.artifact_name),
+                    "artifact_name": result.artifact_name,
+                    "download_url": result.download_url,
+                    "summary": f"{result.schema_name} register — {result.total_extracted} {result.entity_label} entries",
+                    "sections": [],
+                    "slides": [],
+                },
+            )
+    return result
+
+
+# ── Analytics endpoint ─────────────────────────────────────────────────────────
+
+@router.get("/api/v1/analytics", response_model=AnalyticsDashboard)
+def get_analytics(user: dict = Depends(get_required_user)) -> AnalyticsDashboard:
+    from backend.app.services.analytics_service import get_dashboard
+    return get_dashboard(user_id=int(user["id"]))
+
+
+# ── Clause library endpoints ───────────────────────────────────────────────────
+
+@router.get("/api/v1/clauses", response_model=list[ClauseRecord])
+def list_clauses(
+    project_id: int | None = None,
+    user: dict = Depends(get_required_user),
+) -> list[ClauseRecord]:
+    records = persistence.list_clauses(user_id=int(user["id"]), project_id=project_id)
+    return [ClauseRecord(**{**r, "tags": r.get("tags", [])}) for r in records]
+
+
+@router.post("/api/v1/clauses", response_model=ClauseRecord, status_code=201)
+def create_clause(
+    request: ClauseCreateRequest,
+    user: dict = Depends(get_required_user),
+) -> ClauseRecord:
+    from backend.app.services.clause_service import save_clause_and_index
+    return save_clause_and_index(
+        user_id=int(user["id"]),
+        project_id=request.project_id,
+        title=request.title,
+        content=request.content,
+        tags=request.tags,
+        source_doc=request.source_doc,
+    )
+
+
+@router.delete("/api/v1/clauses/{clause_id}", status_code=204)
+def delete_clause(clause_id: int, user: dict = Depends(get_required_user)) -> None:
+    deleted = persistence.delete_clause(clause_id, int(user["id"]))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Clause not found.")
+
+
+@router.get("/api/v1/clauses/search", response_model=ClauseSearchResponse)
+def search_clauses(
+    q: str,
+    user: dict = Depends(get_required_user),
+) -> ClauseSearchResponse:
+    from backend.app.services.clause_service import search_clauses_semantic
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="Search query cannot be empty.")
+    results = search_clauses_semantic(user_id=int(user["id"]), query=q.strip(), limit=10)
+    return ClauseSearchResponse(query=q, results=results)
+
+
+@router.post("/api/v1/clauses/auto-extract", response_model=list[ClauseRecord])
+def auto_extract_clauses(
+    request: ClauseAutoExtractRequest,
+    user: dict = Depends(get_required_user),
+) -> list[ClauseRecord]:
+    from backend.app.services.clause_service import auto_extract_clauses as _auto_extract
+    try:
+        return _auto_extract(
+            text=request.text,
+            doc_name=request.document_name,
+            user_id=int(user["id"]),
+            project_id=request.project_id,
+            provider=request.llm_provider,
+            model=request.llm_model,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Auto-extraction failed: {exc}") from exc

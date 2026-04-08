@@ -143,6 +143,32 @@ def init_db() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(rubric_id) REFERENCES rubrics(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS extraction_schemas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                entity_label TEXT NOT NULL,
+                fields_json TEXT NOT NULL DEFAULT '[]',
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS clauses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                project_id INTEGER,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                source_doc TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+            );
             """
         )
         # Migration: add is_admin column to existing databases that predate this column
@@ -576,3 +602,263 @@ def save_validation_result(user_id: int, rubric_id: int, document_name: str, ver
             (user_id, rubric_id, document_name, verdict, score, json.dumps(result), now),
         )
     return int(cursor.lastrowid)
+
+
+# ── Extraction schema functions ────────────────────────────────────────────────
+
+_DEFAULT_EXTRACTION_SCHEMAS = [
+    ("Risks & Mitigations", "Extract risks, their likelihood, impact, and mitigation actions.", "Risk",
+     [{"name": "Risk Description", "description": "What could go wrong", "required": True},
+      {"name": "Likelihood", "description": "H / M / L", "required": True},
+      {"name": "Impact", "description": "H / M / L", "required": True},
+      {"name": "Mitigation", "description": "How the risk is mitigated", "required": True},
+      {"name": "Owner", "description": "Who owns the risk", "required": False}]),
+    ("Requirements", "Extract functional or non-functional requirements.", "Requirement",
+     [{"name": "ID", "description": "Requirement identifier e.g. REQ-001", "required": False},
+      {"name": "Description", "description": "Full requirement statement", "required": True},
+      {"name": "Priority", "description": "H / M / L or MoSCoW", "required": True},
+      {"name": "Acceptance Criteria", "description": "How this will be verified", "required": False},
+      {"name": "Status", "description": "Open / In Progress / Done", "required": False}]),
+    ("Action Items", "Extract action items, owners, and due dates.", "Action Item",
+     [{"name": "Action", "description": "What needs to be done", "required": True},
+      {"name": "Owner", "description": "Who is responsible", "required": True},
+      {"name": "Due Date", "description": "Target completion date", "required": False},
+      {"name": "Priority", "description": "H / M / L", "required": False},
+      {"name": "Status", "description": "Open / In Progress / Done", "required": False}]),
+    ("Stakeholders", "Extract stakeholders, their roles, and responsibilities.", "Stakeholder",
+     [{"name": "Name / Role", "description": "Person or role title", "required": True},
+      {"name": "Responsibility", "description": "What they are responsible for", "required": True},
+      {"name": "Influence", "description": "H / M / L", "required": False},
+      {"name": "Engagement Level", "description": "Inform / Consult / Collaborate / Lead", "required": False}]),
+    ("Decisions", "Extract decisions made, their rationale, and impact.", "Decision",
+     [{"name": "Decision", "description": "What was decided", "required": True},
+      {"name": "Rationale", "description": "Why this decision was made", "required": True},
+      {"name": "Made By", "description": "Who made the decision", "required": False},
+      {"name": "Date", "description": "When it was decided", "required": False},
+      {"name": "Impact", "description": "Effect on the project or team", "required": False}]),
+]
+
+
+def ensure_default_extraction_schemas(user_id: int) -> None:
+    """Create built-in extraction schemas for a user if they don't exist yet."""
+    with get_connection() as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) FROM extraction_schemas WHERE user_id = ? AND is_default = 1",
+            (user_id,),
+        ).fetchone()[0]
+        if count > 0:
+            return
+        now = utc_now_iso()
+        for name, desc, entity_label, fields in _DEFAULT_EXTRACTION_SCHEMAS:
+            connection.execute(
+                """
+                INSERT INTO extraction_schemas (user_id, name, description, entity_label, fields_json, is_default, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (user_id, name, desc, entity_label, json.dumps(fields), now, now),
+            )
+
+
+def list_extraction_schemas(user_id: int) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT id, name, description, entity_label, fields_json, is_default, created_at, updated_at FROM extraction_schemas WHERE user_id = ? ORDER BY is_default DESC, name ASC",
+            (user_id,),
+        ).fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        d["fields"] = json.loads(d.pop("fields_json", "[]"))
+        result.append(d)
+    return result
+
+
+def get_extraction_schema(schema_id: int, user_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT id, name, description, entity_label, fields_json, is_default, created_at, updated_at FROM extraction_schemas WHERE id = ? AND user_id = ?",
+            (schema_id, user_id),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["fields"] = json.loads(d.pop("fields_json", "[]"))
+    return d
+
+
+def create_extraction_schema(user_id: int, name: str, description: str, entity_label: str, fields: list[dict]) -> dict[str, Any]:
+    now = utc_now_iso()
+    with get_connection() as connection:
+        cursor = connection.execute(
+            "INSERT INTO extraction_schemas (user_id, name, description, entity_label, fields_json, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+            (user_id, name.strip(), description.strip(), entity_label.strip(), json.dumps(fields), now, now),
+        )
+        schema_id = int(cursor.lastrowid)
+    return get_extraction_schema(schema_id, user_id)  # type: ignore[return-value]
+
+
+def delete_extraction_schema(schema_id: int, user_id: int) -> bool:
+    with get_connection() as connection:
+        row = connection.execute("SELECT is_default FROM extraction_schemas WHERE id = ? AND user_id = ?", (schema_id, user_id)).fetchone()
+        if not row or row["is_default"]:
+            return False
+        cursor = connection.execute("DELETE FROM extraction_schemas WHERE id = ? AND user_id = ?", (schema_id, user_id))
+    return cursor.rowcount > 0
+
+
+# ── Clause functions ───────────────────────────────────────────────────────────
+
+def save_clause(user_id: int, project_id: int | None, title: str, content: str, tags: list[str], source_doc: str) -> dict[str, Any]:
+    now = utc_now_iso()
+    with get_connection() as connection:
+        cursor = connection.execute(
+            "INSERT INTO clauses (user_id, project_id, title, content, tags_json, source_doc, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, project_id, title.strip(), content.strip(), json.dumps(tags), source_doc.strip(), now),
+        )
+        clause_id = int(cursor.lastrowid)
+    return {"id": clause_id, "user_id": user_id, "project_id": project_id, "title": title.strip(), "content": content.strip(), "tags": tags, "source_doc": source_doc.strip(), "created_at": now}
+
+
+def list_clauses(user_id: int, project_id: int | None = None) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        if project_id is not None:
+            rows = connection.execute(
+                "SELECT id, project_id, title, content, tags_json, source_doc, created_at FROM clauses WHERE user_id = ? AND project_id = ? ORDER BY created_at DESC",
+                (user_id, project_id),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT id, project_id, title, content, tags_json, source_doc, created_at FROM clauses WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,),
+            ).fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        d["tags"] = json.loads(d.pop("tags_json", "[]"))
+        result.append(d)
+    return result
+
+
+def get_clause(clause_id: int, user_id: int) -> dict[str, Any] | None:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT id, project_id, title, content, tags_json, source_doc, created_at FROM clauses WHERE id = ? AND user_id = ?",
+            (clause_id, user_id),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["tags"] = json.loads(d.pop("tags_json", "[]"))
+    return d
+
+
+def delete_clause(clause_id: int, user_id: int) -> bool:
+    with get_connection() as connection:
+        cursor = connection.execute("DELETE FROM clauses WHERE id = ? AND user_id = ?", (clause_id, user_id))
+    return cursor.rowcount > 0
+
+
+def count_clauses(user_id: int) -> int:
+    with get_connection() as connection:
+        return int(connection.execute("SELECT COUNT(*) FROM clauses WHERE user_id = ?", (user_id,)).fetchone()[0])
+
+
+# ── Analytics functions ────────────────────────────────────────────────────────
+
+def get_analytics_overview(user_id: int) -> dict[str, Any]:
+    with get_connection() as connection:
+        total_documents = connection.execute("SELECT COUNT(*) FROM documents WHERE user_id = ?", (user_id,)).fetchone()[0]
+        total_artifacts = connection.execute("SELECT COUNT(*) FROM artifacts WHERE user_id = ?", (user_id,)).fetchone()[0]
+        total_validations = connection.execute("SELECT COUNT(*) FROM validation_results WHERE user_id = ?", (user_id,)).fetchone()[0]
+        total_clauses = connection.execute("SELECT COUNT(*) FROM clauses WHERE user_id = ?", (user_id,)).fetchone()[0]
+        score_row = connection.execute(
+            "SELECT AVG(compliance_score), COUNT(*) FROM validation_results WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        avg_score = round(float(score_row[0] or 0), 2)
+        pass_count = connection.execute(
+            "SELECT COUNT(*) FROM validation_results WHERE user_id = ? AND overall_verdict IN ('PASS', 'PASS_WITH_WARNINGS')",
+            (user_id,),
+        ).fetchone()[0]
+        pass_rate = round(pass_count / total_validations * 100, 1) if total_validations > 0 else 0.0
+    return {
+        "total_documents": int(total_documents),
+        "total_artifacts": int(total_artifacts),
+        "total_validations": int(total_validations),
+        "avg_compliance_score": avg_score,
+        "pass_rate": pass_rate,
+        "total_clauses": int(total_clauses),
+    }
+
+
+def get_validation_trends(user_id: int, days: int = 30) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                substr(created_at, 1, 10) AS date,
+                AVG(compliance_score) AS avg_score,
+                COUNT(*) AS count,
+                SUM(CASE WHEN overall_verdict IN ('PASS','PASS_WITH_WARNINGS') THEN 1 ELSE 0 END) AS pass_count
+            FROM validation_results
+            WHERE user_id = ?
+              AND created_at >= datetime('now', ? || ' days')
+            GROUP BY substr(created_at, 1, 10)
+            ORDER BY date ASC
+            """,
+            (user_id, f"-{days}"),
+        ).fetchall()
+    return [{"date": row["date"], "avg_score": round(float(row["avg_score"]), 2), "count": int(row["count"]), "pass_count": int(row["pass_count"])} for row in rows]
+
+
+def get_common_issues(user_id: int, limit: int = 10) -> list[dict[str, Any]]:
+    """Parse stored result_json to aggregate most frequent issue strings."""
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT result_json FROM validation_results WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
+            (user_id,),
+        ).fetchall()
+    issue_counts: dict[str, int] = {}
+    for row in rows:
+        try:
+            result = json.loads(row["result_json"])
+            for issue in result.get("layer1", {}).get("issues", []):
+                issue_counts[issue] = issue_counts.get(issue, 0) + 1
+            for issue in result.get("layer2", {}).get("consistency_issues", []):
+                issue_counts[issue] = issue_counts.get(issue, 0) + 1
+        except Exception:
+            continue
+    sorted_issues = sorted(issue_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+    return [{"issue": issue, "count": count} for issue, count in sorted_issues]
+
+
+def get_recent_activity(user_id: int, limit: int = 20) -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        doc_rows = connection.execute(
+            "SELECT title AS name, created_at FROM documents WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        art_rows = connection.execute(
+            "SELECT artifact_name AS name, artifact_type, created_at FROM artifacts WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        val_rows = connection.execute(
+            "SELECT document_name AS name, overall_verdict, compliance_score, created_at FROM validation_results WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        clause_rows = connection.execute(
+            "SELECT title AS name, created_at FROM clauses WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+
+    activity: list[dict[str, Any]] = []
+    for row in doc_rows:
+        activity.append({"activity_type": "document", "name": row["name"], "created_at": row["created_at"], "details": "Parsed document"})
+    for row in art_rows:
+        activity.append({"activity_type": "artifact", "name": row["name"], "created_at": row["created_at"], "details": f"{row['artifact_type'].upper()} generated"})
+    for row in val_rows:
+        activity.append({"activity_type": "validation", "name": row["name"], "created_at": row["created_at"], "details": f"Verdict: {row['overall_verdict']} — Score: {row['compliance_score']:.1f}"})
+    for row in clause_rows:
+        activity.append({"activity_type": "clause", "name": row["name"], "created_at": row["created_at"], "details": "Saved to clause library"})
+
+    activity.sort(key=lambda x: x["created_at"], reverse=True)
+    return activity[:limit]
