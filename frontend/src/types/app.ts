@@ -74,7 +74,7 @@ export type GeneratedSlide = {
 };
 
 export type GenerateResult = {
-  artifact_type: "sow" | "pptx";
+  artifact_type: "sow" | "pptx" | "bid" | "register" | "case_study";
   file_path: string;
   artifact_name: string;
   download_url: string;
@@ -446,6 +446,27 @@ export type ClauseAutoExtractRequest = {
 export type ClauseSearchResponse = {
   query: string;
   results: ClauseRecord[];
+};
+
+// ── Case Study types ──────────────────────────────────────────────────────────
+
+export type CaseStudyMetric = {
+  label: string;
+  value: string;
+  description: string;
+};
+
+export type GenerateCaseStudyRequest = {
+  client_name: string;
+  client_industry: string;
+  engagement_title: string;
+  source_document: DocumentInput;
+  challenge_summary: string;
+  headline_metrics: CaseStudyMetric[];
+  our_approach_points: string[];
+  project_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
 };
 
 // ── Bid types ─────────────────────────────────────────────────────────────────

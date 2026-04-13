@@ -31,7 +31,9 @@ from backend.app.models.schemas import (
     ExtractionSchemaCreateRequest,
     ExtractionSchemaRecord,
     ExtractionSchemaSummary,
+    CaseStudyMetric,
     GenerateBidRequest,
+    GenerateCaseStudyRequest,
     GeneratePptxRequest,
     GenerateResult,
     GenerateSowRequest,
@@ -76,6 +78,7 @@ from backend.app.services.embedding_service import (
 from backend.app.services.file_utils import OUTPUT_DIR
 from backend.app.services.document_parser import DocumentParser
 from backend.app.services.bid_generator import BidGenerator
+from backend.app.services.case_study_generator import CaseStudyGenerator
 from backend.app.services.ppt_generator import PptGenerator
 from backend.app.services.provider_catalog import get_provider_catalog, resolve_chat_model
 from backend.app.services.summarization_service import summarize_document
@@ -95,6 +98,7 @@ document_parser = DocumentParser()
 sow_generator = SowGenerator()
 ppt_generator = PptGenerator()
 bid_generator = BidGenerator()
+case_study_generator = CaseStudyGenerator()
 
 
 def get_required_user(authorization: str | None = Header(default=None)) -> dict:
@@ -962,3 +966,15 @@ def auto_extract_clauses(
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Auto-extraction failed: {exc}") from exc
+
+
+@router.post("/api/v1/generate/case-study", response_model=GenerateResult)
+def generate_case_study(
+    request: GenerateCaseStudyRequest,
+    user: dict = Depends(get_required_user),
+) -> GenerateResult:
+    try:
+        result = case_study_generator.generate(request)
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Case study generation failed: {exc}") from exc

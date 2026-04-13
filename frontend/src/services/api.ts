@@ -1,6 +1,8 @@
 import type {
   AnalyticsDashboard,
   AuthResponse,
+  CaseStudyMetric,
+  GenerateCaseStudyRequest,
   BatchValidateResponse,
   ChatRequest,
   ChatResponse,
@@ -475,6 +477,19 @@ export const autoExtractClauses = async (
   options: AuthOptions,
 ): Promise<ClauseRecord[]> => {
   return requestJson<ClauseRecord[]>(`${API_BASE_URL}/api/v1/clauses/auto-extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Case Study API ────────────────────────────────────────────────────────────
+
+export const generateCaseStudy = async (
+  payload: GenerateCaseStudyRequest,
+  options: AuthOptions,
+): Promise<GenerateResult> => {
+  return requestJson<GenerateResult>(`${API_BASE_URL}/api/v1/generate/case-study`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
     body: JSON.stringify(payload),

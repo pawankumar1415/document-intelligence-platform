@@ -88,8 +88,27 @@ class GeneratedSlide(BaseModel):
     right_column: list[str] = Field(default_factory=list)
 
 
+class CaseStudyMetric(BaseModel):
+    label: str
+    value: str
+    description: str = ""
+
+
+class GenerateCaseStudyRequest(BaseModel):
+    client_name: str = Field(..., min_length=1)
+    client_industry: str = ""
+    engagement_title: str = Field(..., min_length=1)
+    source_document: DocumentInput
+    challenge_summary: str = ""
+    headline_metrics: list[CaseStudyMetric] = Field(default_factory=list)
+    our_approach_points: list[str] = Field(default_factory=list)
+    project_id: int | None = None
+    llm_provider: LLMProvider = "openai"
+    llm_model: str | None = None
+
+
 class GenerateResult(BaseModel):
-    artifact_type: Literal["sow", "pptx", "bid", "register"]
+    artifact_type: Literal["sow", "pptx", "bid", "register", "case_study"]
     file_path: str
     artifact_name: str
     download_url: str

@@ -1,4 +1,4 @@
-import { ArrowUpDown, BarChart2, BookOpen, ClipboardCheck, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield, Table2 } from "lucide-react";
+import { ArrowUpDown, BarChart2, BookMarked, BookOpen, ClipboardCheck, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield, Table2 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
@@ -75,6 +75,14 @@ const Sidebar = () => {
         >
           <BookOpen size={16} />
           Clause Library
+        </NavLink>
+
+        <NavLink
+          to="/case-study"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <BookMarked size={16} />
+          Case Studies
         </NavLink>
 
         <span className="nav-section-label">Validation</span>
