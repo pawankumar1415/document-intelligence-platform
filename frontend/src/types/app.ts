@@ -480,3 +480,112 @@ export type GenerateBidRequest = {
   llm_provider: LLMProvider;
   llm_model?: string | null;
 };
+
+// ── Project types ─────────────────────────────────────────────────────────────
+
+export type ProjectResponse = {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectCreateRequest = {
+  name: string;
+};
+
+// ── Template Library types ────────────────────────────────────────────────────
+
+export type TemplateType = "sow" | "pptx" | "bid" | "case_study";
+
+export type GenerationTemplateSummary = {
+  id: number;
+  name: string;
+  description: string;
+  template_type: TemplateType;
+  is_default: boolean;
+  created_at: string;
+};
+
+export type GenerationTemplateRecord = GenerationTemplateSummary & {
+  config: Record<string, unknown>;
+};
+
+export type GenerationTemplateCreateRequest = {
+  name: string;
+  description: string;
+  template_type: TemplateType;
+  config: Record<string, unknown>;
+};
+
+// ── Artifact Feedback types ───────────────────────────────────────────────────
+
+export type ArtifactFeedbackRequest = {
+  section_title?: string;
+  rating: 1 | -1;
+  note?: string;
+};
+
+export type ArtifactFeedbackRecord = {
+  id: number;
+  artifact_id: number;
+  section_title: string;
+  rating: number;
+  note: string;
+  created_at: string;
+};
+
+// ── Share Link types ──────────────────────────────────────────────────────────
+
+export type ShareLinkCreateRequest = {
+  expires_in_days?: number | null;
+};
+
+export type ShareLinkRecord = {
+  token: string;
+  artifact_id: number;
+  artifact_name: string;
+  artifact_type: string;
+  download_url: string;
+  summary: string;
+  created_at: string;
+  expires_at: string | null;
+};
+
+// ── Project Overview types ────────────────────────────────────────────────────
+
+export type ProjectDocumentSummary = {
+  id: number;
+  filename: string;
+  title: string;
+  word_count: number;
+  created_at: string;
+};
+
+export type ProjectArtifactSummary = {
+  id: number;
+  artifact_type: string;
+  artifact_name: string;
+  download_url: string;
+  summary: string;
+  created_at: string;
+};
+
+export type ProjectValidationSummary = {
+  id: number;
+  document_name: string;
+  overall_verdict: string;
+  compliance_score: number;
+  created_at: string;
+};
+
+export type ProjectOverview = {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  documents: ProjectDocumentSummary[];
+  artifacts: ProjectArtifactSummary[];
+  recent_validations: ProjectValidationSummary[];
+  clause_count: number;
+};

@@ -1,7 +1,8 @@
 import type {
   AnalyticsDashboard,
+  ArtifactFeedbackRecord,
+  ArtifactFeedbackRequest,
   AuthResponse,
-  CaseStudyMetric,
   GenerateCaseStudyRequest,
   BatchValidateResponse,
   ChatRequest,
@@ -20,19 +21,28 @@ import type {
   GenerateBidRequest,
   GeneratePptxRequest,
   GenerateResult,
+  GenerationTemplateCreateRequest,
+  GenerationTemplateRecord,
+  GenerationTemplateSummary,
   GenerateSowRequest,
   LLMProvider,
   EmbeddingCatalog,
   ParseResponse,
+  ProjectCreateRequest,
+  ProjectOverview,
+  ProjectResponse,
   ProviderCatalogResponse,
   RubricCreateRequest,
   RubricRecord,
   RubricSummary,
+  ShareLinkCreateRequest,
+  ShareLinkRecord,
   SharePointLibrary,
   SharePointFilesResponse,
   SharePointSite,
   SummarizeRequest,
   SummarizeResponse,
+  TemplateType,
   UseCaseAssessment,
   ValidateRequest,
   ValidationResult,
@@ -493,6 +503,141 @@ export const generateCaseStudy = async (
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
     body: JSON.stringify(payload),
+  });
+};
+
+// ── Projects API ─────────────────────────────────────────────────────────────
+
+export const listProjects = async (options: AuthOptions): Promise<ProjectResponse[]> => {
+  return requestJson<ProjectResponse[]>(`${API_BASE_URL}/api/v1/projects`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const createProject = async (
+  payload: ProjectCreateRequest,
+  options: AuthOptions,
+): Promise<ProjectResponse> => {
+  return requestJson<ProjectResponse>(`${API_BASE_URL}/api/v1/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Template Library API ──────────────────────────────────────────────────────
+
+export const listTemplates = async (
+  options: AuthOptions & { templateType?: TemplateType | null },
+): Promise<GenerationTemplateSummary[]> => {
+  const url = options.templateType
+    ? `${API_BASE_URL}/api/v1/templates?template_type=${options.templateType}`
+    : `${API_BASE_URL}/api/v1/templates`;
+  return requestJson<GenerationTemplateSummary[]>(url, { headers: authHeaders(options.token) });
+};
+
+export const getTemplate = async (
+  templateId: number,
+  options: AuthOptions,
+): Promise<GenerationTemplateRecord> => {
+  return requestJson<GenerationTemplateRecord>(`${API_BASE_URL}/api/v1/templates/${templateId}`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const createTemplate = async (
+  payload: GenerationTemplateCreateRequest,
+  options: AuthOptions,
+): Promise<GenerationTemplateRecord> => {
+  return requestJson<GenerationTemplateRecord>(`${API_BASE_URL}/api/v1/templates`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const deleteTemplate = async (templateId: number, options: AuthOptions): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/templates/${templateId}`, {
+    method: "DELETE",
+    headers: authHeaders(options.token),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text(), null);
+};
+
+// ── Artifact Feedback API ─────────────────────────────────────────────────────
+
+export const submitFeedback = async (
+  artifactId: number,
+  payload: ArtifactFeedbackRequest,
+  options: AuthOptions,
+): Promise<ArtifactFeedbackRecord> => {
+  return requestJson<ArtifactFeedbackRecord>(
+    `${API_BASE_URL}/api/v1/artifacts/${artifactId}/feedback`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+      body: JSON.stringify(payload),
+    },
+  );
+};
+
+export const getFeedback = async (
+  artifactId: number,
+  options: AuthOptions,
+): Promise<ArtifactFeedbackRecord[]> => {
+  return requestJson<ArtifactFeedbackRecord[]>(
+    `${API_BASE_URL}/api/v1/artifacts/${artifactId}/feedback`,
+    { headers: authHeaders(options.token) },
+  );
+};
+
+// ── Share Links API ───────────────────────────────────────────────────────────
+
+export const createShareLink = async (
+  artifactId: number,
+  payload: ShareLinkCreateRequest,
+  options: AuthOptions,
+): Promise<ShareLinkRecord> => {
+  return requestJson<ShareLinkRecord>(
+    `${API_BASE_URL}/api/v1/artifacts/${artifactId}/share`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+      body: JSON.stringify(payload),
+    },
+  );
+};
+
+export const listShareLinks = async (
+  artifactId: number,
+  options: AuthOptions,
+): Promise<ShareLinkRecord[]> => {
+  return requestJson<ShareLinkRecord[]>(
+    `${API_BASE_URL}/api/v1/artifacts/${artifactId}/share`,
+    { headers: authHeaders(options.token) },
+  );
+};
+
+export const revokeShareLink = async (token: string, options: AuthOptions): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/share/${token}`, {
+    method: "DELETE",
+    headers: authHeaders(options.token),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text(), null);
+};
+
+export const getSharedArtifact = async (token: string): Promise<ShareLinkRecord> => {
+  return requestJson<ShareLinkRecord>(`${API_BASE_URL}/api/v1/share/${token}`);
+};
+
+// ── Project Overview API ──────────────────────────────────────────────────────
+
+export const getProjectOverview = async (
+  projectId: number,
+  options: AuthOptions,
+): Promise<ProjectOverview> => {
+  return requestJson<ProjectOverview>(`${API_BASE_URL}/api/v1/projects/${projectId}/overview`, {
+    headers: authHeaders(options.token),
   });
 };
 

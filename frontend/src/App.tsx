@@ -13,8 +13,12 @@ import CompareView from "./views/CompareView";
 import ExtractView from "./views/ExtractView";
 import LoginView from "./views/LoginView";
 import OutputsView from "./views/OutputsView";
+import ProjectDetailView from "./views/ProjectDetailView";
+import ProjectsView from "./views/ProjectsView";
 import SettingsView from "./views/SettingsView";
+import ShareView from "./views/ShareView";
 import StudioView from "./views/StudioView";
+import TemplateLibraryView from "./views/TemplateLibraryView";
 import ValidateView from "./views/ValidateView";
 import "./App.css";
 
@@ -24,6 +28,7 @@ function App() {
       <Routes>
         {/* Public */}
         <Route path="/login" element={<LoginView />} />
+        <Route path="/share/:token" element={<ShareView />} />
 
         {/* Protected — with sidebar */}
         <Route
@@ -38,6 +43,9 @@ function App() {
                     <Route path="/studio" element={<StudioView />} />
                     <Route path="/chat" element={<ChatView />} />
                     <Route path="/outputs" element={<OutputsView />} />
+                    <Route path="/projects" element={<ProjectsView />} />
+                    <Route path="/projects/:projectId" element={<ProjectDetailView />} />
+                    <Route path="/templates" element={<TemplateLibraryView />} />
                     <Route path="/validate" element={<ValidateView />} />
                     <Route path="/batch-validate" element={<BatchValidateView />} />
                     <Route path="/compare" element={<CompareView />} />

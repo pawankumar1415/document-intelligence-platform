@@ -1,4 +1,4 @@
-import { ArrowUpDown, BarChart2, BookMarked, BookOpen, ClipboardCheck, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield, Table2 } from "lucide-react";
+import { ArrowUpDown, BarChart2, BookMarked, BookOpen, ClipboardCheck, FolderOpen, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield, Table2, Wand2 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
@@ -51,6 +51,22 @@ const Sidebar = () => {
         >
           <Library size={16} />
           Output Library
+        </NavLink>
+
+        <NavLink
+          to="/projects"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <FolderOpen size={16} />
+          Projects
+        </NavLink>
+
+        <NavLink
+          to="/templates"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <Wand2 size={16} />
+          Templates
         </NavLink>
 
         <NavLink

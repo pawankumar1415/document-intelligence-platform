@@ -169,18 +169,52 @@ def init_db() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
             );
+
+            CREATE TABLE IF NOT EXISTS generation_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                template_type TEXT NOT NULL CHECK(template_type IN ('sow','pptx','bid','case_study')),
+                config_json TEXT NOT NULL DEFAULT '{}',
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS artifact_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                artifact_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                section_title TEXT NOT NULL DEFAULT '',
+                rating INTEGER NOT NULL CHECK(rating IN (1, -1)),
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS share_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL UNIQUE,
+                artifact_id INTEGER NOT NULL,
+                created_by INTEGER NOT NULL,
+                expires_at TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
+                FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+            );
             """
         )
         # Migration: add is_admin column to existing databases that predate this column
         try:
             connection.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
         except sqlite3.OperationalError:
-            pass  # Column already exists
-        # Migration: add is_active column
+            pass
         try:
             connection.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
         except sqlite3.OperationalError:
-            pass  # Column already exists
+            pass
 
 
 def create_user(email: str, password_hash: str, password_salt: str) -> dict[str, Any]:
@@ -862,3 +896,194 @@ def get_recent_activity(user_id: int, limit: int = 20) -> list[dict[str, Any]]:
 
     activity.sort(key=lambda x: x["created_at"], reverse=True)
     return activity[:limit]
+
+
+# ── Template Library CRUD ─────────────────────────────────────────────────────
+
+def list_templates(user_id: int, template_type: str | None = None) -> list[dict]:
+    _ensure_default_templates(user_id)
+    with get_connection() as conn:
+        if template_type:
+            rows = conn.execute(
+                "SELECT id,name,description,template_type,config_json,is_default,created_at FROM generation_templates WHERE user_id=? AND template_type=? ORDER BY is_default DESC, name",
+                (user_id, template_type),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id,name,description,template_type,config_json,is_default,created_at FROM generation_templates WHERE user_id=? ORDER BY template_type, is_default DESC, name",
+                (user_id,),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_template(template_id: int, user_id: int) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id,name,description,template_type,config_json,is_default,created_at FROM generation_templates WHERE id=? AND user_id=?",
+            (template_id, user_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def create_template(user_id: int, name: str, description: str, template_type: str, config: dict) -> dict:
+    now = utc_now_iso()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO generation_templates (user_id,name,description,template_type,config_json,is_default,created_at) VALUES (?,?,?,?,?,0,?)",
+            (user_id, name.strip(), description.strip(), template_type, json.dumps(config), now),
+        )
+        tid = int(cursor.lastrowid)
+    return {"id": tid, "name": name.strip(), "description": description.strip(), "template_type": template_type, "config_json": json.dumps(config), "is_default": 0, "created_at": now}
+
+
+def delete_template(template_id: int, user_id: int) -> bool:
+    with get_connection() as conn:
+        deleted = conn.execute(
+            "DELETE FROM generation_templates WHERE id=? AND user_id=? AND is_default=0",
+            (template_id, user_id),
+        ).rowcount
+    return deleted > 0
+
+
+def _ensure_default_templates(user_id: int) -> None:
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT COUNT(*) FROM generation_templates WHERE user_id=? AND is_default=1",
+            (user_id,),
+        ).fetchone()[0]
+    if existing:
+        return
+    defaults = [
+        ("Standard SOW", "Default Statement of Work template for consulting engagements.", "sow",
+         {"tone": "formal", "assumptions": ["Client will provide named SMEs with adequate availability.", "All workshops will be conducted on client premises unless otherwise agreed.", "Sign-off will be provided within 5 business days of each deliverable."], "custom_instructions": ""}),
+        ("Executive PPT Deck", "Concise deck for senior stakeholder presentations.", "pptx",
+         {"max_slides": 8, "subtitle_template": "Prepared by BSBI Consulting", "tone": "executive"}),
+        ("Bid Response — Consulting", "Standard proposal response for consulting opportunities.", "bid",
+         {"our_strengths": ["Deep sector expertise across housing, healthcare and financial services.", "Proven delivery methodology with measurable outcomes.", "Flexible commercial model and dedicated UK-based team."], "tone": "confident"}),
+        ("Case Study — Standard", "Standard case study for completed engagements.", "case_study",
+         {"client_industry": "", "approach_points": [], "tone": "professional"}),
+    ]
+    now = utc_now_iso()
+    with get_connection() as conn:
+        for name, desc, ttype, config in defaults:
+            conn.execute(
+                "INSERT OR IGNORE INTO generation_templates (user_id,name,description,template_type,config_json,is_default,created_at) VALUES (?,?,?,?,?,1,?)",
+                (user_id, name, desc, ttype, json.dumps(config), now),
+            )
+
+
+# ── Artifact Feedback CRUD ────────────────────────────────────────────────────
+
+def save_feedback(artifact_id: int, user_id: int, section_title: str, rating: int, note: str) -> dict:
+    now = utc_now_iso()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO artifact_feedback (artifact_id,user_id,section_title,rating,note,created_at) VALUES (?,?,?,?,?,?)",
+            (artifact_id, user_id, section_title, rating, note, now),
+        )
+        fid = int(cursor.lastrowid)
+    return {"id": fid, "artifact_id": artifact_id, "section_title": section_title, "rating": rating, "note": note, "created_at": now}
+
+
+def list_feedback(artifact_id: int, user_id: int) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id,artifact_id,section_title,rating,note,created_at FROM artifact_feedback WHERE artifact_id=? AND user_id=? ORDER BY created_at DESC",
+            (artifact_id, user_id),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_artifact_by_id(artifact_id: int, user_id: int) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id,project_id,artifact_type,artifact_name,download_url,summary,created_at FROM artifacts WHERE id=? AND user_id=?",
+            (artifact_id, user_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# ── Share Links CRUD ──────────────────────────────────────────────────────────
+
+def create_share_link(artifact_id: int, user_id: int, expires_at: str | None) -> dict:
+    import secrets
+    token = secrets.token_urlsafe(32)
+    now = utc_now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO share_links (token,artifact_id,created_by,expires_at,created_at) VALUES (?,?,?,?,?)",
+            (token, artifact_id, user_id, expires_at, now),
+        )
+    return {"token": token, "artifact_id": artifact_id, "created_by": user_id, "expires_at": expires_at, "created_at": now}
+
+
+def get_share_link(token: str) -> dict | None:
+    now = utc_now_iso()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT sl.token, sl.artifact_id, sl.expires_at, sl.created_at,"
+            " a.artifact_name, a.artifact_type, a.download_url, a.summary"
+            " FROM share_links sl JOIN artifacts a ON a.id = sl.artifact_id"
+            " WHERE sl.token=? AND (sl.expires_at IS NULL OR sl.expires_at > ?)",
+            (token, now),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_share_link(token: str, user_id: int) -> bool:
+    with get_connection() as conn:
+        deleted = conn.execute(
+            "DELETE FROM share_links WHERE token=? AND created_by=?",
+            (token, user_id),
+        ).rowcount
+    return deleted > 0
+
+
+def list_share_links(artifact_id: int, user_id: int) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT sl.token, sl.artifact_id, sl.expires_at, sl.created_at,"
+            " a.artifact_name, a.artifact_type, a.download_url, a.summary"
+            " FROM share_links sl JOIN artifacts a ON a.id = sl.artifact_id"
+            " WHERE sl.artifact_id=? AND sl.created_by=? ORDER BY sl.created_at DESC",
+            (artifact_id, user_id),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── Project Overview ──────────────────────────────────────────────────────────
+
+def get_project_overview(project_id: int, user_id: int) -> dict | None:
+    with get_connection() as conn:
+        proj = conn.execute(
+            "SELECT id, name, created_at, updated_at FROM projects WHERE id=? AND user_id=?",
+            (project_id, user_id),
+        ).fetchone()
+        if not proj:
+            return None
+        docs = conn.execute(
+            "SELECT id, filename, title, word_count, created_at FROM documents WHERE project_id=? AND user_id=? ORDER BY created_at DESC",
+            (project_id, user_id),
+        ).fetchall()
+        arts = conn.execute(
+            "SELECT id, artifact_type, artifact_name, download_url, summary, created_at FROM artifacts WHERE project_id=? AND user_id=? ORDER BY created_at DESC",
+            (project_id, user_id),
+        ).fetchall()
+        vals = conn.execute(
+            "SELECT id, document_name, overall_verdict, compliance_score, created_at FROM validation_results WHERE user_id=? ORDER BY created_at DESC LIMIT 10",
+            (user_id,),
+        ).fetchall()
+        clause_count = conn.execute(
+            "SELECT COUNT(*) FROM clauses WHERE project_id=? AND user_id=?",
+            (project_id, user_id),
+        ).fetchone()[0]
+    return {
+        "id": proj["id"],
+        "name": proj["name"],
+        "created_at": proj["created_at"],
+        "updated_at": proj["updated_at"],
+        "documents": [dict(d) for d in docs],
+        "artifacts": [dict(a) for a in arts],
+        "recent_validations": [dict(v) for v in vals],
+        "clause_count": int(clause_count),
+    }

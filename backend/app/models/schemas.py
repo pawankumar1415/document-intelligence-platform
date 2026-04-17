@@ -581,3 +581,97 @@ class GenerateBidRequest(BaseModel):
     project_id: int | None = None
     llm_provider: LLMProvider = "openai"
     llm_model: str | None = None
+
+
+# ── Template Library ──────────────────────────────────────────────────────────
+
+class GenerationTemplateSummary(BaseModel):
+    id: int
+    name: str
+    description: str
+    template_type: Literal["sow", "pptx", "bid", "case_study"]
+    is_default: bool
+    created_at: str
+
+
+class GenerationTemplateRecord(GenerationTemplateSummary):
+    config: dict = Field(default_factory=dict)
+
+
+class GenerationTemplateCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    template_type: Literal["sow", "pptx", "bid", "case_study"]
+    config: dict = Field(default_factory=dict)
+
+
+# ── Artifact Feedback ─────────────────────────────────────────────────────────
+
+class ArtifactFeedbackRequest(BaseModel):
+    section_title: str = ""
+    rating: Literal[1, -1]
+    note: str = ""
+
+
+class ArtifactFeedbackRecord(BaseModel):
+    id: int
+    artifact_id: int
+    section_title: str
+    rating: int
+    note: str
+    created_at: str
+
+
+# ── Share Links ───────────────────────────────────────────────────────────────
+
+class ShareLinkCreateRequest(BaseModel):
+    expires_in_days: int | None = None
+
+
+class ShareLinkRecord(BaseModel):
+    token: str
+    artifact_id: int
+    artifact_name: str
+    artifact_type: str
+    download_url: str
+    summary: str
+    created_at: str
+    expires_at: str | None
+
+
+# ── Project Overview ──────────────────────────────────────────────────────────
+
+class ProjectDocumentSummary(BaseModel):
+    id: int
+    filename: str
+    title: str
+    word_count: int
+    created_at: str
+
+
+class ProjectArtifactSummary(BaseModel):
+    id: int
+    artifact_type: str
+    artifact_name: str
+    download_url: str
+    summary: str
+    created_at: str
+
+
+class ProjectValidationSummary(BaseModel):
+    id: int
+    document_name: str
+    overall_verdict: str
+    compliance_score: float
+    created_at: str
+
+
+class ProjectOverview(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    updated_at: str
+    documents: list[ProjectDocumentSummary]
+    artifacts: list[ProjectArtifactSummary]
+    recent_validations: list[ProjectValidationSummary]
+    clause_count: int
