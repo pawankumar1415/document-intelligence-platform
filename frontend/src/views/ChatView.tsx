@@ -1,5 +1,7 @@
 import { AlertCircle, Bot, Loader2, MessageSquare, Send, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { useAppState } from "../context/AppStateContext";
 import { sendChatMessage } from "../services/api";
@@ -93,7 +95,9 @@ const ChatView = () => {
               {msg.role === "user" ? <User size={14} /> : <Bot size={14} />}
             </div>
             <div className="chat-bubble">
-              <pre className="chat-bubble-text">{msg.content}</pre>
+              <div className="chat-bubble-text chat-markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+              </div>
             </div>
           </div>
         ))}

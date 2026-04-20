@@ -288,6 +288,7 @@ def run_validation(
             document_name=document_name,
             verdict=verdict,
             score=compliance_score,
+            project_id=project_id,
             result=result,
         )
     except Exception:

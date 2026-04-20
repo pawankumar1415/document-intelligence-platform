@@ -124,15 +124,14 @@ def _parse_format_a(raw_bytes: bytes, filename: str = "") -> tuple[list[dict], s
 
     xl = pd.ExcelFile(io.BytesIO(raw_bytes))
 
-    # Find the MPPR sheet
-    sheet_name = next(
-        (s for s in xl.sheet_names if "MPPR" in s.upper() or "NDA" in s.upper()),
-        None,
-    )
-    if not sheet_name:
+    # Find the MPPR sheet — prefer sheets whose name contains "NDA" (e.g. "5a)NDA MPPR")
+    # over period-specific sheets (e.g. "Pd08 MPPR WD9") which use a different layout.
+    mppr_sheets = [s for s in xl.sheet_names if "MPPR" in s.upper() or "NDA" in s.upper()]
+    if not mppr_sheets:
         raise ValueError(
             f"No MPPR sheet found. Available sheets: {xl.sheet_names}"
         )
+    sheet_name = next((s for s in mppr_sheets if "NDA" in s.upper()), mppr_sheets[0])
 
     df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
     logger.info("MPPR sheet '%s': %d rows × %d cols", sheet_name, len(df), len(df.columns))

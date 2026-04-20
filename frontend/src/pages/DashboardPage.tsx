@@ -288,7 +288,7 @@ const DashboardPage = () => {
               <label className="dropzone">
                 <input
                   type="file"
-                  accept=".docx,.txt,.pdf"
+                  accept=".docx,.txt,.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.bmp,.tiff"
                   onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
                 />
                 <UploadCloud size={36} strokeWidth={1.5} className="dropzone-icon" />
@@ -350,7 +350,7 @@ const DashboardPage = () => {
               <label className="reupload-label">
                 <input
                   type="file"
-                  accept=".docx,.txt,.pdf"
+                  accept=".docx,.txt,.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.bmp,.tiff"
                   onChange={(e) => {
                     handleFileChange(e.target.files?.[0] ?? null);
                     setParsedDocument(null);

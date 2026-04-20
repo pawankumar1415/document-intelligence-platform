@@ -1,4 +1,4 @@
-import { ArrowUpDown, BarChart2, BookMarked, BookOpen, ClipboardCheck, FolderOpen, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield, Table2, Wand2 } from "lucide-react";
+import { ArrowUpDown, BarChart2, BookMarked, BookOpen, BookText, ClipboardCheck, FolderOpen, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield, Table2, Wand2 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
@@ -137,6 +137,14 @@ const Sidebar = () => {
         >
           <Settings size={16} />
           AI Settings
+        </NavLink>
+
+        <NavLink
+          to="/docs"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <BookText size={16} />
+          Documentation
         </NavLink>
 
         {user?.is_admin && (

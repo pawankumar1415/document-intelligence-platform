@@ -94,7 +94,7 @@ const StudioView = () => {
 
   const handleParse = async () => {
     if (!selectedFile) {
-      setParseError("Select a .docx, .txt, or .pdf file before parsing.");
+      setParseError("Select a supported file (.docx, .txt, .pdf, .xlsx, .xls, .csv, or an image) before parsing.");
       return;
     }
     setParseLoading(true);
@@ -339,12 +339,12 @@ const StudioView = () => {
               <label className="dropzone">
                 <input
                   type="file"
-                  accept=".docx,.txt,.pdf"
+                  accept=".docx,.txt,.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.bmp,.tiff"
                   onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
                 />
                 <UploadCloud size={34} strokeWidth={1.5} className="dropzone-icon" />
                 <strong>Drop file here or click to browse</strong>
-                <span>.docx · .txt · .pdf supported</span>
+                <span>.docx · .txt · .pdf · .xlsx · .csv · images supported</span>
               </label>
 
               {selectedFile ? (
@@ -410,7 +410,7 @@ const StudioView = () => {
               <label className="reupload-label">
                 <input
                   type="file"
-                  accept=".docx,.txt,.pdf"
+                  accept=".docx,.txt,.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.bmp,.tiff"
                   onChange={(e) => {
                     handleFileChange(e.target.files?.[0] ?? null);
                     setParsedDocument(null);

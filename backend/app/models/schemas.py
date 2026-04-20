@@ -21,7 +21,7 @@ class ExtractionSignal(BaseModel):
 
 class ParsedDocument(BaseModel):
     filename: str
-    file_type: Literal["docx", "txt", "pdf"]
+    file_type: Literal["docx", "txt", "pdf", "xlsx", "csv", "image"]
     title: str
     text: str
     sections: list[ParsedSection]
@@ -355,6 +355,7 @@ class ValidateRequest(BaseModel):
     text: str = Field(..., min_length=10)
     document_name: str = Field(..., min_length=1)
     rubric_id: int | None = None
+    project_id: int | None = None
     llm_provider: LLMProvider = "openai"
     llm_model: str | None = None
 

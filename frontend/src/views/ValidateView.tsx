@@ -13,8 +13,8 @@ import { useEffect, useRef, useState } from "react";
 
 import SharePointPicker from "../components/SharePointPicker";
 import { useAppState } from "../context/AppStateContext";
-import { listRubrics, sharePointDownloadAndParse, validateDocument } from "../services/api";
-import type { RubricSummary, SharePointFile, ValidationResult } from "../types/app";
+import { listProjects, listRubrics, sharePointDownloadAndParse, validateDocument } from "../services/api";
+import type { ProjectResponse, RubricSummary, SharePointFile, ValidationResult } from "../types/app";
 
 type Source = "manual" | "sharepoint";
 
@@ -65,6 +65,8 @@ const ValidateView = () => {
   const [text, setText] = useState("");
   const [rubrics, setRubrics] = useState<RubricSummary[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState<number | null>(null);
+  const [projects, setProjects] = useState<ProjectResponse[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [result, setResult] = useState<ValidationResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +89,7 @@ const ValidateView = () => {
       const def = data.find((r) => r.is_default);
       if (def) setSelectedRubricId(def.id);
     }).catch(() => {});
+    listProjects({ token }).then(setProjects).catch(() => {});
   }, [token]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -132,6 +135,7 @@ const ValidateView = () => {
           rubric_id: selectedRubricId,
           llm_provider: llmProvider,
           llm_model: llmModel || null,
+          project_id: selectedProjectId,
         },
         { token },
       );
@@ -245,7 +249,7 @@ const ValidateView = () => {
             <label className="form-label" style={{ marginTop: 12 }}>Validation Rubric</label>
             <select
               className="form-control"
-              style={{ marginBottom: 16 }}
+              style={{ marginBottom: 12 }}
               value={selectedRubricId ?? ""}
               onChange={(e) => setSelectedRubricId(e.target.value ? Number(e.target.value) : null)}
             >
@@ -253,6 +257,19 @@ const ValidateView = () => {
                 <option key={r.id} value={r.id}>
                   {r.name}{r.is_default ? " (default)" : ""}
                 </option>
+              ))}
+            </select>
+
+            <label className="form-label">Link to Project (optional)</label>
+            <select
+              className="form-control"
+              style={{ marginBottom: 16 }}
+              value={selectedProjectId ?? ""}
+              onChange={(e) => setSelectedProjectId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">— No project —</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
 

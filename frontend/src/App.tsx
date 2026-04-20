@@ -20,6 +20,7 @@ import ShareView from "./views/ShareView";
 import StudioView from "./views/StudioView";
 import TemplateLibraryView from "./views/TemplateLibraryView";
 import ValidateView from "./views/ValidateView";
+import DocsView from "./views/DocsView";
 import "./App.css";
 
 function App() {
@@ -55,6 +56,7 @@ function App() {
                     <Route path="/case-study" element={<CaseStudyView />} />
                     <Route path="/settings" element={<SettingsView />} />
                     <Route path="/admin" element={<AdminView />} />
+                    <Route path="/docs" element={<DocsView />} />
                     {/* Legacy redirects */}
                     <Route path="/dashboard" element={<Navigate to="/studio" replace />} />
                     <Route path="/generate" element={<Navigate to="/studio" replace />} />

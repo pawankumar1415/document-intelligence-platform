@@ -135,6 +135,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 rubric_id INTEGER NOT NULL,
+                project_id INTEGER,
                 document_name TEXT NOT NULL,
                 overall_verdict TEXT NOT NULL CHECK(overall_verdict IN ('PASS', 'PASS_WITH_WARNINGS', 'FAIL', 'ERROR')),
                 compliance_score REAL NOT NULL DEFAULT 0,
@@ -213,6 +214,10 @@ def init_db() -> None:
             pass
         try:
             connection.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            connection.execute("ALTER TABLE validation_results ADD COLUMN project_id INTEGER")
         except sqlite3.OperationalError:
             pass
 
@@ -625,17 +630,46 @@ def delete_rubric(rubric_id: int, user_id: int) -> bool:
     return cursor.rowcount > 0
 
 
-def save_validation_result(user_id: int, rubric_id: int, document_name: str, verdict: str, score: float, result: dict) -> int:
+def save_validation_result(user_id: int, rubric_id: int, document_name: str, verdict: str, score: float, result: dict, project_id: int | None = None) -> int:
     now = utc_now_iso()
     with get_connection() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO validation_results (user_id, rubric_id, document_name, overall_verdict, compliance_score, result_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO validation_results (user_id, rubric_id, project_id, document_name, overall_verdict, compliance_score, result_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, rubric_id, document_name, verdict, score, json.dumps(result), now),
+            (user_id, rubric_id, project_id, document_name, verdict, score, json.dumps(result), now),
         )
     return int(cursor.lastrowid)
+
+
+def get_validation_by_id(validation_id: int, user_id: int) -> dict | None:
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT vr.id, vr.document_name, vr.overall_verdict, vr.compliance_score,
+                   vr.result_json, vr.created_at, r.name AS rubric_name
+            FROM validation_results vr
+            LEFT JOIN rubrics r ON r.id = vr.rubric_id
+            WHERE vr.id = ? AND vr.user_id = ?
+            """,
+            (validation_id, user_id),
+        ).fetchone()
+    if not row:
+        return None
+    result = json.loads(row["result_json"])
+    return {
+        "id": row["id"],
+        "document_name": row["document_name"],
+        "overall_verdict": row["overall_verdict"],
+        "compliance_score": float(row["compliance_score"]),
+        "rubric_name": row["rubric_name"] or "",
+        "created_at": row["created_at"],
+        "layer1": result.get("layer1", {}),
+        "layer2": result.get("layer2", {}),
+        "rewritten_text": result.get("rewritten_text", ""),
+        "meta": result.get("meta", {}),
+    }
 
 
 # ── Extraction schema functions ────────────────────────────────────────────────
@@ -1070,8 +1104,8 @@ def get_project_overview(project_id: int, user_id: int) -> dict | None:
             (project_id, user_id),
         ).fetchall()
         vals = conn.execute(
-            "SELECT id, document_name, overall_verdict, compliance_score, created_at FROM validation_results WHERE user_id=? ORDER BY created_at DESC LIMIT 10",
-            (user_id,),
+            "SELECT id, document_name, overall_verdict, compliance_score, created_at FROM validation_results WHERE user_id=? AND project_id=? ORDER BY created_at DESC LIMIT 10",
+            (user_id, project_id),
         ).fetchall()
         clause_count = conn.execute(
             "SELECT COUNT(*) FROM clauses WHERE project_id=? AND user_id=?",

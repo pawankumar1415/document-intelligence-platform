@@ -14,8 +14,8 @@ import { useEffect, useRef, useState } from "react";
 
 import SharePointPicker from "../components/SharePointPicker";
 import { useAppState } from "../context/AppStateContext";
-import { getSharePointFiles, getSharePointLibraries, listRubrics, validateBatch } from "../services/api";
-import type { RubricSummary, SharePointFile, ValidationResult } from "../types/app";
+import { getSharePointFiles, getSharePointLibraries, listProjects, listRubrics, validateBatch } from "../services/api";
+import type { ProjectResponse, RubricSummary, SharePointFile, ValidationResult } from "../types/app";
 
 type Source = "local" | "sharepoint";
 
@@ -72,6 +72,8 @@ const BatchValidateView = () => {
 
   const [rubrics, setRubrics] = useState<RubricSummary[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState<number | null>(null);
+  const [projects, setProjects] = useState<ProjectResponse[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
 
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -88,6 +90,7 @@ const BatchValidateView = () => {
       const def = data.find((r) => r.is_default);
       if (def) setSelectedRubricId(def.id);
     }).catch(() => {});
+    listProjects({ token }).then(setProjects).catch(() => {});
   }, [token]);
 
   const handleLocalFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -142,6 +145,7 @@ const BatchValidateView = () => {
         rubricId: selectedRubricId,
         llmProvider,
         llmModel: llmModel || null,
+        projectId: selectedProjectId,
       });
       setProgress(100);
       setRubricName(result.rubric_name);
@@ -254,7 +258,7 @@ const BatchValidateView = () => {
             <label className="form-label" style={{ marginTop: 16 }}>Validation Rubric</label>
             <select
               className="form-control"
-              style={{ marginBottom: 16 }}
+              style={{ marginBottom: 12 }}
               value={selectedRubricId ?? ""}
               onChange={(e) => setSelectedRubricId(e.target.value ? Number(e.target.value) : null)}
             >
@@ -262,6 +266,19 @@ const BatchValidateView = () => {
                 <option key={r.id} value={r.id}>
                   {r.name}{r.is_default ? " (default)" : ""}
                 </option>
+              ))}
+            </select>
+
+            <label className="form-label">Link to Project (optional)</label>
+            <select
+              className="form-control"
+              style={{ marginBottom: 16 }}
+              value={selectedProjectId ?? ""}
+              onChange={(e) => setSelectedProjectId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">— No project —</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
 

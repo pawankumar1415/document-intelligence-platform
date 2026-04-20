@@ -274,13 +274,14 @@ export const validateDocument = async (
 
 export const validateBatch = async (
   file: File,
-  options: AuthOptions & { rubricId?: number | null; llmProvider?: string; llmModel?: string | null },
+  options: AuthOptions & { rubricId?: number | null; llmProvider?: string; llmModel?: string | null; projectId?: number | null },
 ): Promise<BatchValidateResponse> => {
   const form = new FormData();
   form.append("file", file);
   form.append("llm_provider", options.llmProvider ?? "openai");
   if (options.rubricId != null) form.append("rubric_id", String(options.rubricId));
   if (options.llmModel) form.append("llm_model", options.llmModel);
+  if (options.projectId != null) form.append("project_id", String(options.projectId));
   return requestJson<BatchValidateResponse>(`${API_BASE_URL}/api/v1/validate/batch`, {
     method: "POST",
     headers: authHeaders(options.token),
@@ -637,6 +638,17 @@ export const getProjectOverview = async (
   options: AuthOptions,
 ): Promise<ProjectOverview> => {
   return requestJson<ProjectOverview>(`${API_BASE_URL}/api/v1/projects/${projectId}/overview`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+// ── Validation Detail API ─────────────────────────────────────────────────────
+
+export const getValidationDetail = async (
+  validationId: number,
+  options: AuthOptions,
+): Promise<ValidationDetail> => {
+  return requestJson<ValidationDetail>(`${API_BASE_URL}/api/v1/validations/${validationId}`, {
     headers: authHeaders(options.token),
   });
 };

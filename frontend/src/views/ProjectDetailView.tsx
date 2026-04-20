@@ -3,12 +3,14 @@ import {
   ArrowLeft,
   BookOpen,
   CheckCircle,
+  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   Download,
   FileText,
   FolderOpen,
   Layers,
+  Loader2,
   Presentation,
   XCircle,
 } from "lucide-react";
@@ -16,8 +18,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
-import { downloadArtifact, getProjectOverview } from "../services/api";
-import type { ProjectOverview } from "../types/app";
+import { downloadArtifact, getProjectOverview, getValidationDetail } from "../services/api";
+import type { ProjectOverview, ValidationDetail } from "../types/app";
 
 type Tab = "documents" | "artifacts" | "validations" | "clauses";
 
@@ -48,6 +50,9 @@ const ProjectDetailView = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("documents");
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [expandedValId, setExpandedValId] = useState<number | null>(null);
+  const [valDetails, setValDetails] = useState<Record<number, ValidationDetail>>({});
+  const [valLoading, setValLoading] = useState<number | null>(null);
 
   useEffect(() => {
     if (!projectId) return;
@@ -239,24 +244,157 @@ const ProjectDetailView = () => {
             {overview.recent_validations.map((v) => {
               const vs = VERDICT_STYLE[v.overall_verdict] ?? VERDICT_STYLE.FAIL;
               const { Icon } = vs;
+              const isExpanded = expandedValId === v.id;
+              const detail = valDetails[v.id];
+              const isLoadingThis = valLoading === v.id;
+
+              const handleToggle = async () => {
+                if (isExpanded) {
+                  setExpandedValId(null);
+                  return;
+                }
+                setExpandedValId(v.id);
+                if (!valDetails[v.id]) {
+                  setValLoading(v.id);
+                  try {
+                    const d = await getValidationDetail(v.id, { token });
+                    setValDetails((prev) => ({ ...prev, [v.id]: d }));
+                  } catch {
+                    // detail unavailable — row stays open but empty
+                  } finally {
+                    setValLoading(null);
+                  }
+                }
+              };
+
               return (
-                <div key={v.id} className="card" style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: "14px" }}>
-                  <Icon size={20} style={{ color: vs.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "2px" }}>{v.document_name}</div>
-                    <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", display: "flex", gap: "12px" }}>
-                      <span>Score: <strong style={{ color: vs.color }}>{Math.round(v.compliance_score)}%</strong></span>
-                      <span>{fmtDate(v.created_at)}</span>
+                <div key={v.id} className="card" style={{ padding: 0, overflow: "hidden" }}>
+                  {/* Summary row — clickable */}
+                  <button
+                    type="button"
+                    onClick={() => void handleToggle()}
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center", gap: "14px",
+                      padding: "16px 20px", background: "none", border: "none",
+                      cursor: "pointer", textAlign: "left",
+                      borderBottom: isExpanded ? "1px solid var(--border-color)" : "none",
+                    }}
+                  >
+                    <Icon size={20} style={{ color: vs.color, flexShrink: 0 }} />
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "3px", color: "var(--text-primary)" }}>
+                        {v.document_name}
+                      </div>
+                      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", display: "flex", gap: "12px", alignItems: "center" }}>
+                        {/* Score shown as X.X / 10 — matches ValidateView */}
+                        <span>
+                          Score:{" "}
+                          <strong style={{ color: vs.color, fontFamily: "var(--font-mono, monospace)" }}>
+                            {v.compliance_score.toFixed(1)}&thinsp;/&thinsp;10
+                          </strong>
+                        </span>
+                        <span>{fmtDate(v.created_at)}</span>
+                      </div>
                     </div>
-                  </div>
-                  <span style={{
-                    fontSize: "0.75rem", fontWeight: 600, color: vs.color,
-                    background: `${vs.color}18`, border: `1px solid ${vs.color}40`,
-                    borderRadius: "12px", padding: "3px 10px",
-                  }}>
-                    {v.overall_verdict.replace(/_/g, " ")}
-                  </span>
-                  <ChevronRight size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+
+                    <span style={{
+                      fontSize: "0.75rem", fontWeight: 600, color: vs.color,
+                      background: `${vs.color}18`, border: `1px solid ${vs.color}40`,
+                      borderRadius: "12px", padding: "3px 10px", flexShrink: 0,
+                    }}>
+                      {v.overall_verdict.replace(/_/g, " ")}
+                    </span>
+
+                    {isLoadingThis
+                      ? <Loader2 size={15} className="spin" style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                      : isExpanded
+                        ? <ChevronDown size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                        : <ChevronRight size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                    }
+                  </button>
+
+                  {/* Expanded detail panel */}
+                  {isExpanded && detail && (
+                    <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "16px" }}>
+
+                      {/* Rubric + chunks */}
+                      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", display: "flex", gap: "16px" }}>
+                        {detail.rubric_name && <span>Rubric: <strong style={{ color: "var(--text-secondary)" }}>{detail.rubric_name}</strong></span>}
+                        {detail.meta?.chunks_used != null && <span>Context chunks used: <strong style={{ color: "var(--text-secondary)" }}>{detail.meta.chunks_used}</strong></span>}
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                        {/* Issues */}
+                        {detail.layer1.issues.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-muted)", marginBottom: "8px" }}>
+                              Layer 1 — Issues
+                            </div>
+                            <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: "5px" }}>
+                              {detail.layer1.issues.map((issue, i) => (
+                                <li key={i} style={{ display: "flex", gap: "8px", fontSize: "0.83rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                                  <span style={{ color: "#dc2626", flexShrink: 0, marginTop: "1px" }}>✗</span>
+                                  {issue}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Passed */}
+                        {detail.layer1.passed.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-muted)", marginBottom: "8px" }}>
+                              Layer 1 — Passed
+                            </div>
+                            <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: "5px" }}>
+                              {detail.layer1.passed.map((p, i) => (
+                                <li key={i} style={{ display: "flex", gap: "8px", fontSize: "0.83rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                                  <span style={{ color: "#16a34a", flexShrink: 0, marginTop: "1px" }}>✓</span>
+                                  {p}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Layer 2 consistency issues */}
+                      {detail.layer2.consistency_issues.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-muted)", marginBottom: "8px" }}>
+                            Layer 2 — Consistency Issues
+                          </div>
+                          <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: "5px" }}>
+                            {detail.layer2.consistency_issues.map((issue, i) => (
+                              <li key={i} style={{ display: "flex", gap: "8px", fontSize: "0.83rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                                <span style={{ color: "#d97706", flexShrink: 0, marginTop: "1px" }}>⚠</span>
+                                {issue}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Rewritten text */}
+                      {detail.rewritten_text && (
+                        <div>
+                          <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-muted)", marginBottom: "8px" }}>
+                            AI-Suggested Rewrite
+                          </div>
+                          <div style={{
+                            background: "var(--bg-secondary)", border: "1px solid var(--border-color)",
+                            borderLeft: "3px solid var(--accent)", borderRadius: "6px",
+                            padding: "12px 16px", fontSize: "0.83rem", color: "var(--text-secondary)",
+                            lineHeight: 1.65, whiteSpace: "pre-wrap", maxHeight: "220px", overflowY: "auto",
+                          }}>
+                            {detail.rewritten_text}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

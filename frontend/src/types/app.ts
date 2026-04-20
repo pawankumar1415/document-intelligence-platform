@@ -5,7 +5,7 @@ export type ParsedSection = {
 
 export type ParsedDocument = {
   filename: string;
-  file_type: "docx" | "txt" | "pdf";
+  file_type: "docx" | "txt" | "pdf" | "xlsx" | "csv" | "image";
   title: string;
   text: string;
   sections: ParsedSection[];
@@ -588,4 +588,28 @@ export type ProjectOverview = {
   artifacts: ProjectArtifactSummary[];
   recent_validations: ProjectValidationSummary[];
   clause_count: number;
+};
+
+export type ValidationDetail = {
+  id: number;
+  document_name: string;
+  overall_verdict: string;
+  compliance_score: number;
+  rubric_name: string;
+  created_at: string;
+  layer1: {
+    compliance_score: number;
+    issues: string[];
+    passed: string[];
+  };
+  layer2: {
+    consistency_issues: string[];
+    passed: string[];
+  };
+  rewritten_text: string;
+  meta: {
+    document_name?: string;
+    rubric_name?: string;
+    chunks_used?: number;
+  };
 };

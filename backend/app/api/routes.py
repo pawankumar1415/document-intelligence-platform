@@ -233,7 +233,7 @@ async def parse_document(
     user: dict = Depends(get_required_user),
 ) -> ParseResponse:
     try:
-        parsed_document = await document_parser.parse_upload(file)
+        parsed_document = await document_parser.parse_upload(file, llm_provider=llm_provider)
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     use_case_screening = screen_document_for_supported_use_cases(parsed_document)
@@ -581,6 +581,7 @@ def validate_document(
             document_name=request.document_name,
             user_id=int(user["id"]),
             rubric_id=request.rubric_id,
+            project_id=request.project_id,
             provider=request.llm_provider,
             model=request.llm_model,
         )
@@ -589,9 +590,22 @@ def validate_document(
     return ValidationResult(**result)
 
 
+@router.get("/api/v1/validations/{validation_id}")
+async def get_validation(
+    validation_id: int,
+    user: dict = Depends(get_required_user),
+) -> dict:
+    from backend.app.services import persistence
+    result = persistence.get_validation_by_id(validation_id, int(user["id"]))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Validation not found.")
+    return result
+
+
 @router.post("/api/v1/validate/batch", response_model=BatchValidateResponse)
 async def validate_batch(
     rubric_id: int | None = Form(default=None),
+    project_id: int | None = Form(default=None),
     llm_provider: str = Form(default="openai"),
     llm_model: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
@@ -625,6 +639,7 @@ async def validate_batch(
             items=items,
             user_id=int(user["id"]),
             rubric_id=rubric_id,
+            project_id=project_id,
             provider=llm_provider,  # type: ignore[arg-type]
             model=llm_model,
         )
