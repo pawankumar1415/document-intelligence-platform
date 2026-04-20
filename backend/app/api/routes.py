@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from backend.app.models.schemas import (
     AdminUserRecord,
     AdminUserUpdateRequest,
+    AnalyticsDashboard,
     ArtifactRecord,
     AuthLoginRequest,
     AuthRegisterRequest,
@@ -17,8 +18,22 @@ from backend.app.models.schemas import (
     ChatRequest,
     ChatResponse,
     ChatMeta,
+    ClauseAutoExtractRequest,
+    ClauseCreateRequest,
+    ClauseRecord,
+    ClauseSearchResponse,
+    CompareRequest,
+    ComparisonResult,
     EmbeddingConfigUpdateRequest,
     EmbeddingCatalog,
+    ExtractRequest,
+    ExtractionResult,
+    ExtractionSchemaCreateRequest,
+    ExtractionSchemaRecord,
+    ExtractionSchemaSummary,
+    CaseStudyMetric,
+    GenerateBidRequest,
+    GenerateCaseStudyRequest,
     GeneratePptxRequest,
     GenerateResult,
     GenerateSowRequest,
@@ -62,6 +77,8 @@ from backend.app.services.embedding_service import (
 )
 from backend.app.services.file_utils import OUTPUT_DIR
 from backend.app.services.document_parser import DocumentParser
+from backend.app.services.bid_generator import BidGenerator
+from backend.app.services.case_study_generator import CaseStudyGenerator
 from backend.app.services.ppt_generator import PptGenerator
 from backend.app.services.provider_catalog import get_provider_catalog, resolve_chat_model
 from backend.app.services.summarization_service import summarize_document
@@ -80,6 +97,8 @@ router = APIRouter()
 document_parser = DocumentParser()
 sow_generator = SowGenerator()
 ppt_generator = PptGenerator()
+bid_generator = BidGenerator()
+case_study_generator = CaseStudyGenerator()
 
 
 def get_required_user(authorization: str | None = Header(default=None)) -> dict:
@@ -214,7 +233,7 @@ async def parse_document(
     user: dict = Depends(get_required_user),
 ) -> ParseResponse:
     try:
-        parsed_document = await document_parser.parse_upload(file)
+        parsed_document = await document_parser.parse_upload(file, llm_provider=llm_provider)
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     use_case_screening = screen_document_for_supported_use_cases(parsed_document)
@@ -562,6 +581,7 @@ def validate_document(
             document_name=request.document_name,
             user_id=int(user["id"]),
             rubric_id=request.rubric_id,
+            project_id=request.project_id,
             provider=request.llm_provider,
             model=request.llm_model,
         )
@@ -570,9 +590,22 @@ def validate_document(
     return ValidationResult(**result)
 
 
+@router.get("/api/v1/validations/{validation_id}")
+async def get_validation(
+    validation_id: int,
+    user: dict = Depends(get_required_user),
+) -> dict:
+    from backend.app.services import persistence
+    result = persistence.get_validation_by_id(validation_id, int(user["id"]))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Validation not found.")
+    return result
+
+
 @router.post("/api/v1/validate/batch", response_model=BatchValidateResponse)
 async def validate_batch(
     rubric_id: int | None = Form(default=None),
+    project_id: int | None = Form(default=None),
     llm_provider: str = Form(default="openai"),
     llm_model: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
@@ -606,6 +639,7 @@ async def validate_batch(
             items=items,
             user_id=int(user["id"]),
             rubric_id=rubric_id,
+            project_id=project_id,
             provider=llm_provider,  # type: ignore[arg-type]
             model=llm_model,
         )
@@ -744,3 +778,367 @@ async def sharepoint_download_and_parse(
         project_id=int(resolved_project_id),
         document_id=int(document_id),
     )
+
+
+# ── Bid generation endpoint ────────────────────────────────────────────────────
+
+@router.post("/api/v1/generate/bid", response_model=GenerateResult)
+def generate_bid(
+    request: GenerateBidRequest,
+    user: dict = Depends(get_required_user),
+) -> GenerateResult:
+    user_id = int(user["id"])
+    resolved_project_id = request.project_id
+    if resolved_project_id is not None:
+        project = persistence.get_project(resolved_project_id)
+        if not project or int(project["user_id"]) != user_id:
+            raise HTTPException(status_code=403, detail="Project not found for this user.")
+    else:
+        project = persistence.create_project(user_id=user_id, name=request.opportunity_title)
+        resolved_project_id = int(project["id"])
+
+    retrieval_context: list[str] = []
+    try:
+        request.llm_model = resolve_chat_model(request.llm_provider, request.llm_model)
+        query_embedding = embed_query(request.source_document.text[:1500])
+        matches = query_similar_chunks(
+            user_id=user_id,
+            project_id=int(resolved_project_id),
+            query_embedding=query_embedding,
+            limit=5,
+        )
+        retrieval_context = [match.content for match in matches]
+    except Exception:
+        retrieval_context = []
+
+    result = bid_generator.generate(request, retrieval_context=retrieval_context)
+    artifact_id = persistence.save_artifact(
+        user_id=user_id,
+        project_id=int(resolved_project_id),
+        artifact_payload=result.model_dump(),
+    )
+    result.project_id = int(resolved_project_id)
+    result.artifact_id = int(artifact_id)
+    return result
+
+
+# ── Comparison endpoint ────────────────────────────────────────────────────────
+
+@router.post("/api/v1/compare", response_model=ComparisonResult)
+def compare_documents_endpoint(
+    request: CompareRequest,
+    user: dict = Depends(get_required_user),
+) -> ComparisonResult:
+    from backend.app.services.comparison_service import compare_documents
+    del user
+    try:
+        return compare_documents(request)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Comparison failed: {exc}") from exc
+
+
+# ── Extraction schema endpoints ────────────────────────────────────────────────
+
+@router.get("/api/v1/extraction-schemas", response_model=list[ExtractionSchemaSummary])
+def list_extraction_schemas_endpoint(user: dict = Depends(get_required_user)) -> list[ExtractionSchemaSummary]:
+    user_id = int(user["id"])
+    persistence.ensure_default_extraction_schemas(user_id)
+    schemas = persistence.list_extraction_schemas(user_id)
+    return [ExtractionSchemaSummary(**{k: v for k, v in s.items() if k != "fields"}) for s in schemas]
+
+
+@router.get("/api/v1/extraction-schemas/{schema_id}", response_model=ExtractionSchemaRecord)
+def get_extraction_schema_endpoint(schema_id: int, user: dict = Depends(get_required_user)) -> ExtractionSchemaRecord:
+    schema = persistence.get_extraction_schema(schema_id, int(user["id"]))
+    if not schema:
+        raise HTTPException(status_code=404, detail="Extraction schema not found.")
+    return ExtractionSchemaRecord(**schema)
+
+
+@router.post("/api/v1/extraction-schemas", response_model=ExtractionSchemaRecord, status_code=201)
+def create_extraction_schema_endpoint(
+    request: ExtractionSchemaCreateRequest,
+    user: dict = Depends(get_required_user),
+) -> ExtractionSchemaRecord:
+    schema = persistence.create_extraction_schema(
+        user_id=int(user["id"]),
+        name=request.name,
+        description=request.description,
+        entity_label=request.entity_label,
+        fields=[f.model_dump() for f in request.fields],
+    )
+    return ExtractionSchemaRecord(**schema)
+
+
+@router.delete("/api/v1/extraction-schemas/{schema_id}", status_code=204)
+def delete_extraction_schema_endpoint(schema_id: int, user: dict = Depends(get_required_user)) -> None:
+    deleted = persistence.delete_extraction_schema(schema_id, int(user["id"]))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Schema not found or cannot delete a built-in schema.")
+
+
+@router.post("/api/v1/extract", response_model=ExtractionResult)
+def extract_structured_data(
+    request: ExtractRequest,
+    user: dict = Depends(get_required_user),
+) -> ExtractionResult:
+    from backend.app.services.extractor_service import run_extraction
+    user_id = int(user["id"])
+    try:
+        result = run_extraction(request, user_id=user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Extraction failed: {exc}") from exc
+
+    if request.project_id:
+        project = persistence.get_project(request.project_id)
+        if project and int(project["user_id"]) == user_id:
+            persistence.save_artifact(
+                user_id=user_id,
+                project_id=request.project_id,
+                artifact_payload={
+                    "artifact_type": "register",
+                    "file_path": str(OUTPUT_DIR / result.artifact_name),
+                    "artifact_name": result.artifact_name,
+                    "download_url": result.download_url,
+                    "summary": f"{result.schema_name} register — {result.total_extracted} {result.entity_label} entries",
+                    "sections": [],
+                    "slides": [],
+                },
+            )
+    return result
+
+
+# ── Analytics endpoint ─────────────────────────────────────────────────────────
+
+@router.get("/api/v1/analytics", response_model=AnalyticsDashboard)
+def get_analytics(user: dict = Depends(get_required_user)) -> AnalyticsDashboard:
+    from backend.app.services.analytics_service import get_dashboard
+    return get_dashboard(user_id=int(user["id"]))
+
+
+# ── Clause library endpoints ───────────────────────────────────────────────────
+
+@router.get("/api/v1/clauses", response_model=list[ClauseRecord])
+def list_clauses(
+    project_id: int | None = None,
+    user: dict = Depends(get_required_user),
+) -> list[ClauseRecord]:
+    records = persistence.list_clauses(user_id=int(user["id"]), project_id=project_id)
+    return [ClauseRecord(**{**r, "tags": r.get("tags", [])}) for r in records]
+
+
+@router.post("/api/v1/clauses", response_model=ClauseRecord, status_code=201)
+def create_clause(
+    request: ClauseCreateRequest,
+    user: dict = Depends(get_required_user),
+) -> ClauseRecord:
+    from backend.app.services.clause_service import save_clause_and_index
+    return save_clause_and_index(
+        user_id=int(user["id"]),
+        project_id=request.project_id,
+        title=request.title,
+        content=request.content,
+        tags=request.tags,
+        source_doc=request.source_doc,
+    )
+
+
+@router.delete("/api/v1/clauses/{clause_id}", status_code=204)
+def delete_clause(clause_id: int, user: dict = Depends(get_required_user)) -> None:
+    deleted = persistence.delete_clause(clause_id, int(user["id"]))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Clause not found.")
+
+
+@router.get("/api/v1/clauses/search", response_model=ClauseSearchResponse)
+def search_clauses(
+    q: str,
+    user: dict = Depends(get_required_user),
+) -> ClauseSearchResponse:
+    from backend.app.services.clause_service import search_clauses_semantic
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="Search query cannot be empty.")
+    results = search_clauses_semantic(user_id=int(user["id"]), query=q.strip(), limit=10)
+    return ClauseSearchResponse(query=q, results=results)
+
+
+@router.post("/api/v1/clauses/auto-extract", response_model=list[ClauseRecord])
+def auto_extract_clauses(
+    request: ClauseAutoExtractRequest,
+    user: dict = Depends(get_required_user),
+) -> list[ClauseRecord]:
+    from backend.app.services.clause_service import auto_extract_clauses as _auto_extract
+    try:
+        return _auto_extract(
+            text=request.text,
+            doc_name=request.document_name,
+            user_id=int(user["id"]),
+            project_id=request.project_id,
+            provider=request.llm_provider,
+            model=request.llm_model,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Auto-extraction failed: {exc}") from exc
+
+
+@router.post("/api/v1/generate/case-study", response_model=GenerateResult)
+def generate_case_study(
+    request: GenerateCaseStudyRequest,
+    user: dict = Depends(get_required_user),
+) -> GenerateResult:
+    try:
+        result = case_study_generator.generate(request)
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Case study generation failed: {exc}") from exc
+
+
+# ── Template Library ──────────────────────────────────────────────────────────
+
+from backend.app.models.schemas import (
+    GenerationTemplateSummary, GenerationTemplateRecord, GenerationTemplateCreateRequest,
+    ArtifactFeedbackRequest, ArtifactFeedbackRecord,
+    ShareLinkCreateRequest, ShareLinkRecord,
+    ProjectOverview,
+)
+
+@router.get("/api/v1/templates", response_model=list[GenerationTemplateSummary])
+def list_templates(
+    template_type: str | None = None,
+    user: dict = Depends(get_required_user),
+) -> list[GenerationTemplateSummary]:
+    rows = persistence.list_templates(int(user["id"]), template_type)
+    import json as _json
+    return [GenerationTemplateSummary(
+        id=r["id"], name=r["name"], description=r["description"],
+        template_type=r["template_type"], is_default=bool(r["is_default"]),
+        created_at=r["created_at"],
+    ) for r in rows]
+
+
+@router.get("/api/v1/templates/{template_id}", response_model=GenerationTemplateRecord)
+def get_template(template_id: int, user: dict = Depends(get_required_user)) -> GenerationTemplateRecord:
+    import json as _json
+    row = persistence.get_template(template_id, int(user["id"]))
+    if not row:
+        raise HTTPException(status_code=404, detail="Template not found.")
+    return GenerationTemplateRecord(
+        id=row["id"], name=row["name"], description=row["description"],
+        template_type=row["template_type"], is_default=bool(row["is_default"]),
+        created_at=row["created_at"], config=_json.loads(row["config_json"] or "{}"),
+    )
+
+
+@router.post("/api/v1/templates", response_model=GenerationTemplateRecord)
+def create_template(
+    request: GenerationTemplateCreateRequest,
+    user: dict = Depends(get_required_user),
+) -> GenerationTemplateRecord:
+    import json as _json
+    row = persistence.create_template(
+        user_id=int(user["id"]), name=request.name, description=request.description,
+        template_type=request.template_type, config=request.config,
+    )
+    return GenerationTemplateRecord(
+        id=row["id"], name=row["name"], description=row["description"],
+        template_type=row["template_type"], is_default=False,
+        created_at=row["created_at"], config=_json.loads(row["config_json"] or "{}"),
+    )
+
+
+@router.delete("/api/v1/templates/{template_id}", status_code=204)
+def delete_template(template_id: int, user: dict = Depends(get_required_user)) -> None:
+    deleted = persistence.delete_template(template_id, int(user["id"]))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Template not found or is a built-in template.")
+
+
+# ── Artifact Feedback ─────────────────────────────────────────────────────────
+
+@router.post("/api/v1/artifacts/{artifact_id}/feedback", response_model=ArtifactFeedbackRecord)
+def submit_feedback(
+    artifact_id: int,
+    request: ArtifactFeedbackRequest,
+    user: dict = Depends(get_required_user),
+) -> ArtifactFeedbackRecord:
+    artifact = persistence.get_artifact_by_id(artifact_id, int(user["id"]))
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+    row = persistence.save_feedback(
+        artifact_id=artifact_id, user_id=int(user["id"]),
+        section_title=request.section_title, rating=request.rating, note=request.note,
+    )
+    return ArtifactFeedbackRecord(**row)
+
+
+@router.get("/api/v1/artifacts/{artifact_id}/feedback", response_model=list[ArtifactFeedbackRecord])
+def get_feedback(artifact_id: int, user: dict = Depends(get_required_user)) -> list[ArtifactFeedbackRecord]:
+    rows = persistence.list_feedback(artifact_id, int(user["id"]))
+    return [ArtifactFeedbackRecord(**r) for r in rows]
+
+
+# ── Share Links ───────────────────────────────────────────────────────────────
+
+@router.post("/api/v1/artifacts/{artifact_id}/share", response_model=ShareLinkRecord)
+def create_share_link(
+    artifact_id: int,
+    request: ShareLinkCreateRequest,
+    user: dict = Depends(get_required_user),
+) -> ShareLinkRecord:
+    from datetime import datetime, timezone, timedelta
+    import json as _json
+    artifact = persistence.get_artifact_by_id(artifact_id, int(user["id"]))
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+    expires_at = None
+    if request.expires_in_days:
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=request.expires_in_days)).isoformat()
+    row = persistence.create_share_link(artifact_id, int(user["id"]), expires_at)
+    return ShareLinkRecord(
+        token=row["token"], artifact_id=artifact_id,
+        artifact_name=artifact["artifact_name"], artifact_type=artifact["artifact_type"],
+        download_url=artifact["download_url"], summary=artifact["summary"],
+        created_at=row["created_at"], expires_at=row["expires_at"],
+    )
+
+
+@router.get("/api/v1/artifacts/{artifact_id}/share", response_model=list[ShareLinkRecord])
+def list_share_links(artifact_id: int, user: dict = Depends(get_required_user)) -> list[ShareLinkRecord]:
+    rows = persistence.list_share_links(artifact_id, int(user["id"]))
+    return [ShareLinkRecord(
+        token=r["token"], artifact_id=r["artifact_id"],
+        artifact_name=r["artifact_name"], artifact_type=r["artifact_type"],
+        download_url=r["download_url"], summary=r["summary"],
+        created_at=r["created_at"], expires_at=r.get("expires_at"),
+    ) for r in rows]
+
+
+@router.delete("/api/v1/share/{token}", status_code=204)
+def revoke_share_link(token: str, user: dict = Depends(get_required_user)) -> None:
+    persistence.delete_share_link(token, int(user["id"]))
+
+
+# Public — no auth required
+@router.get("/api/v1/share/{token}", response_model=ShareLinkRecord)
+def get_shared_artifact(token: str) -> ShareLinkRecord:
+    row = persistence.get_share_link(token)
+    if not row:
+        raise HTTPException(status_code=404, detail="Share link not found or has expired.")
+    return ShareLinkRecord(
+        token=row["token"], artifact_id=row["artifact_id"],
+        artifact_name=row["artifact_name"], artifact_type=row["artifact_type"],
+        download_url=row["download_url"], summary=row["summary"],
+        created_at=row["created_at"], expires_at=row.get("expires_at"),
+    )
+
+
+# ── Project Overview ──────────────────────────────────────────────────────────
+
+@router.get("/api/v1/projects/{project_id}/overview", response_model=ProjectOverview)
+def get_project_overview(project_id: int, user: dict = Depends(get_required_user)) -> ProjectOverview:
+    overview = persistence.get_project_overview(project_id, int(user["id"]))
+    if not overview:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return ProjectOverview(**overview)

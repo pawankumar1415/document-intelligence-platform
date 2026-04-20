@@ -21,6 +21,7 @@ import { useAppState } from "../context/AppStateContext";
 import {
   ApiError,
   downloadArtifact,
+  generateBid,
   generatePptx,
   generateSow,
   parseDocument,
@@ -28,7 +29,7 @@ import {
 } from "../services/api";
 import type { SummarizeResponse, SummaryMode, UseCaseAssessment } from "../types/app";
 
-type GenTab = "sow" | "ppt" | "summarize";
+type GenTab = "sow" | "ppt" | "summarize" | "bid";
 
 const SUMMARY_MODES: { id: SummaryMode; label: string; desc: string }[] = [
   { id: "executive_summary", label: "Executive Summary", desc: "3-4 paragraph narrative covering context, scope, actions, and risks" },
@@ -62,7 +63,10 @@ const StudioView = () => {
   const [parseLoading, setParseLoading] = useState(false);
   const [sowLoading, setSowLoading] = useState(false);
   const [pptLoading, setPptLoading] = useState(false);
+  const [bidLoading, setBidLoading] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [bidOpportunityTitle, setBidOpportunityTitle] = useState("Document Intelligence Platform Implementation");
+  const [bidStrengths, setBidStrengths] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -90,7 +94,7 @@ const StudioView = () => {
 
   const handleParse = async () => {
     if (!selectedFile) {
-      setParseError("Select a .docx, .txt, or .pdf file before parsing.");
+      setParseError("Select a supported file (.docx, .txt, .pdf, .xlsx, .xls, .csv, or an image) before parsing.");
       return;
     }
     setParseLoading(true);
@@ -205,6 +209,33 @@ const StudioView = () => {
     }
   };
 
+  const handleGenerateBid = async () => {
+    if (!parsedDocument) return;
+    setBidLoading(true);
+    setGenerateError(null);
+    setStatusMessage(null);
+    try {
+      const response = await generateBid(
+        {
+          client_name: clientName,
+          opportunity_title: bidOpportunityTitle,
+          source_document: { title: parsedDocument.title, text: parsedDocument.text, sections: parsedDocument.sections },
+          our_strengths: bidStrengths.split("\n").map((l) => l.trim()).filter(Boolean),
+          project_id: projectId ?? undefined,
+          llm_provider: llmProvider,
+          llm_model: llmModel || undefined,
+        },
+        { token },
+      );
+      addOutput(response);
+      setStatusMessage("Bid response generated successfully.");
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "Could not generate bid response.");
+    } finally {
+      setBidLoading(false);
+    }
+  };
+
   const handleDownload = async (downloadUrl: string, artifactName: string) => {
     setDownloadError(null);
     try {
@@ -308,12 +339,12 @@ const StudioView = () => {
               <label className="dropzone">
                 <input
                   type="file"
-                  accept=".docx,.txt,.pdf"
+                  accept=".docx,.txt,.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.bmp,.tiff"
                   onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
                 />
                 <UploadCloud size={34} strokeWidth={1.5} className="dropzone-icon" />
                 <strong>Drop file here or click to browse</strong>
-                <span>.docx · .txt · .pdf supported</span>
+                <span>.docx · .txt · .pdf · .xlsx · .csv · images supported</span>
               </label>
 
               {selectedFile ? (
@@ -379,7 +410,7 @@ const StudioView = () => {
               <label className="reupload-label">
                 <input
                   type="file"
-                  accept=".docx,.txt,.pdf"
+                  accept=".docx,.txt,.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.bmp,.tiff"
                   onChange={(e) => {
                     handleFileChange(e.target.files?.[0] ?? null);
                     setParsedDocument(null);
@@ -441,6 +472,13 @@ const StudioView = () => {
                 onClick={() => setActiveTab("summarize")}
               >
                 <AlignLeft size={14} /> Summarize
+              </button>
+              <button
+                className={`gen-tab${activeTab === "bid" ? " active" : ""}`}
+                type="button"
+                onClick={() => setActiveTab("bid")}
+              >
+                <FilePlus2 size={14} /> Bid Response
               </button>
             </div>
 
@@ -520,6 +558,49 @@ const StudioView = () => {
                   {pptLoading
                     ? <><Loader2 size={14} className="spin" /> Generating PPT…</>
                     : <><WandSparkles size={14} /> Generate Presentation</>
+                  }
+                </button>
+                {!parsedDocument && <p className="field-hint-block">Parse a document to enable generation.</p>}
+              </div>
+            )}
+
+            {/* Bid tab */}
+            {activeTab === "bid" && (
+              <div className="gen-form">
+                <label className="field-label">
+                  Client name
+                  <input
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    placeholder="e.g. Acme Corporation"
+                  />
+                </label>
+                <label className="field-label">
+                  Opportunity / tender title
+                  <input
+                    value={bidOpportunityTitle}
+                    onChange={(e) => setBidOpportunityTitle(e.target.value)}
+                    placeholder="e.g. Digital Transformation Programme"
+                  />
+                </label>
+                <label className="field-label">
+                  Our key strengths <span className="field-hint">(one per line)</span>
+                  <textarea
+                    rows={4}
+                    value={bidStrengths}
+                    onChange={(e) => setBidStrengths(e.target.value)}
+                    placeholder="e.g. 10 years nuclear sector experience&#10;Fixed-price delivery model&#10;Dedicated local team"
+                  />
+                </label>
+                <button
+                  className="btn btn-primary gen-btn"
+                  type="button"
+                  onClick={() => void handleGenerateBid()}
+                  disabled={!parsedDocument || bidLoading}
+                >
+                  {bidLoading
+                    ? <><Loader2 size={14} className="spin" /> Generating Bid…</>
+                    : <><WandSparkles size={14} /> Generate Bid Response</>
                   }
                 </button>
                 {!parsedDocument && <p className="field-hint-block">Parse a document to enable generation.</p>}

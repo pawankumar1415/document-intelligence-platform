@@ -5,7 +5,7 @@ export type ParsedSection = {
 
 export type ParsedDocument = {
   filename: string;
-  file_type: "docx" | "txt" | "pdf";
+  file_type: "docx" | "txt" | "pdf" | "xlsx" | "csv" | "image";
   title: string;
   text: string;
   sections: ParsedSection[];
@@ -74,7 +74,7 @@ export type GeneratedSlide = {
 };
 
 export type GenerateResult = {
-  artifact_type: "sow" | "pptx";
+  artifact_type: "sow" | "pptx" | "bid" | "register" | "case_study";
   file_path: string;
   artifact_name: string;
   download_url: string;
@@ -299,4 +299,317 @@ export type SharePointFilesResponse = {
   library_id: string;
   folder_path: string;
   items: SharePointFile[];
+};
+
+// ── Comparison types ──────────────────────────────────────────────────────────
+
+export type CompareRequest = {
+  doc_a_name: string;
+  doc_a_text: string;
+  doc_b_name: string;
+  doc_b_text: string;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+export type ComparisonChange = {
+  section: string;
+  change_type: "added" | "removed" | "improved" | "regressed" | "unchanged";
+  details: string;
+};
+
+export type ComparisonResult = {
+  summary: string;
+  overall_sentiment: "improved" | "regressed" | "neutral";
+  doc_a_score: number;
+  doc_b_score: number;
+  key_improvements: string[];
+  key_regressions: string[];
+  changes: ComparisonChange[];
+  doc_a_name: string;
+  doc_b_name: string;
+};
+
+// ── Extraction types ──────────────────────────────────────────────────────────
+
+export type ExtractionSchemaField = {
+  name: string;
+  description: string;
+  required: boolean;
+};
+
+export type ExtractionSchemaSummary = {
+  id: number;
+  name: string;
+  description: string;
+  entity_label: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ExtractionSchemaRecord = ExtractionSchemaSummary & {
+  fields: ExtractionSchemaField[];
+};
+
+export type ExtractionSchemaCreateRequest = {
+  name: string;
+  description: string;
+  entity_label: string;
+  fields: ExtractionSchemaField[];
+};
+
+export type ExtractRequest = {
+  document_name: string;
+  text: string;
+  schema_id: number;
+  project_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+export type ExtractionResult = {
+  schema_name: string;
+  entity_label: string;
+  field_names: string[];
+  rows: string[][];
+  artifact_name: string;
+  download_url: string;
+  total_extracted: number;
+};
+
+// ── Analytics types ───────────────────────────────────────────────────────────
+
+export type AnalyticsOverview = {
+  total_documents: number;
+  total_artifacts: number;
+  total_validations: number;
+  avg_compliance_score: number;
+  pass_rate: number;
+  total_clauses: number;
+};
+
+export type ValidationTrendPoint = {
+  date: string;
+  avg_score: number;
+  count: number;
+  pass_count: number;
+};
+
+export type CommonIssue = {
+  issue: string;
+  count: number;
+};
+
+export type ActivityItem = {
+  activity_type: "document" | "artifact" | "validation" | "clause";
+  name: string;
+  created_at: string;
+  details: string;
+};
+
+export type AnalyticsDashboard = {
+  overview: AnalyticsOverview;
+  validation_trends: ValidationTrendPoint[];
+  common_issues: CommonIssue[];
+  recent_activity: ActivityItem[];
+};
+
+// ── Clause types ──────────────────────────────────────────────────────────────
+
+export type ClauseRecord = {
+  id: number;
+  title: string;
+  content: string;
+  tags: string[];
+  source_doc: string;
+  project_id?: number | null;
+  created_at: string;
+};
+
+export type ClauseCreateRequest = {
+  title: string;
+  content: string;
+  tags: string[];
+  source_doc: string;
+  project_id?: number | null;
+};
+
+export type ClauseAutoExtractRequest = {
+  document_name: string;
+  text: string;
+  project_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+export type ClauseSearchResponse = {
+  query: string;
+  results: ClauseRecord[];
+};
+
+// ── Case Study types ──────────────────────────────────────────────────────────
+
+export type CaseStudyMetric = {
+  label: string;
+  value: string;
+  description: string;
+};
+
+export type GenerateCaseStudyRequest = {
+  client_name: string;
+  client_industry: string;
+  engagement_title: string;
+  source_document: DocumentInput;
+  challenge_summary: string;
+  headline_metrics: CaseStudyMetric[];
+  our_approach_points: string[];
+  project_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+// ── Bid types ─────────────────────────────────────────────────────────────────
+
+export type GenerateBidRequest = {
+  client_name: string;
+  opportunity_title: string;
+  source_document: DocumentInput;
+  our_strengths: string[];
+  project_id?: number | null;
+  llm_provider: LLMProvider;
+  llm_model?: string | null;
+};
+
+// ── Project types ─────────────────────────────────────────────────────────────
+
+export type ProjectResponse = {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectCreateRequest = {
+  name: string;
+};
+
+// ── Template Library types ────────────────────────────────────────────────────
+
+export type TemplateType = "sow" | "pptx" | "bid" | "case_study";
+
+export type GenerationTemplateSummary = {
+  id: number;
+  name: string;
+  description: string;
+  template_type: TemplateType;
+  is_default: boolean;
+  created_at: string;
+};
+
+export type GenerationTemplateRecord = GenerationTemplateSummary & {
+  config: Record<string, unknown>;
+};
+
+export type GenerationTemplateCreateRequest = {
+  name: string;
+  description: string;
+  template_type: TemplateType;
+  config: Record<string, unknown>;
+};
+
+// ── Artifact Feedback types ───────────────────────────────────────────────────
+
+export type ArtifactFeedbackRequest = {
+  section_title?: string;
+  rating: 1 | -1;
+  note?: string;
+};
+
+export type ArtifactFeedbackRecord = {
+  id: number;
+  artifact_id: number;
+  section_title: string;
+  rating: number;
+  note: string;
+  created_at: string;
+};
+
+// ── Share Link types ──────────────────────────────────────────────────────────
+
+export type ShareLinkCreateRequest = {
+  expires_in_days?: number | null;
+};
+
+export type ShareLinkRecord = {
+  token: string;
+  artifact_id: number;
+  artifact_name: string;
+  artifact_type: string;
+  download_url: string;
+  summary: string;
+  created_at: string;
+  expires_at: string | null;
+};
+
+// ── Project Overview types ────────────────────────────────────────────────────
+
+export type ProjectDocumentSummary = {
+  id: number;
+  filename: string;
+  title: string;
+  word_count: number;
+  created_at: string;
+};
+
+export type ProjectArtifactSummary = {
+  id: number;
+  artifact_type: string;
+  artifact_name: string;
+  download_url: string;
+  summary: string;
+  created_at: string;
+};
+
+export type ProjectValidationSummary = {
+  id: number;
+  document_name: string;
+  overall_verdict: string;
+  compliance_score: number;
+  created_at: string;
+};
+
+export type ProjectOverview = {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  documents: ProjectDocumentSummary[];
+  artifacts: ProjectArtifactSummary[];
+  recent_validations: ProjectValidationSummary[];
+  clause_count: number;
+};
+
+export type ValidationDetail = {
+  id: number;
+  document_name: string;
+  overall_verdict: string;
+  compliance_score: number;
+  rubric_name: string;
+  created_at: string;
+  layer1: {
+    compliance_score: number;
+    issues: string[];
+    passed: string[];
+  };
+  layer2: {
+    consistency_issues: string[];
+    passed: string[];
+  };
+  rewritten_text: string;
+  meta: {
+    document_name?: string;
+    rubric_name?: string;
+    chunks_used?: number;
+  };
 };

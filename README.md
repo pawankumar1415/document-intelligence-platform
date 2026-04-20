@@ -10,6 +10,11 @@ BSBI Document Intelligence turns uploaded source documents into branded consulti
 - Chunk and index parsed content into PostgreSQL `pgvector`
 - Generate branded deliverables using a selectable LLM provider and model
 - Download generated `docx` and `pptx` artifacts
+- Generate **Bid / Proposal Responses** from RFP or brief documents
+- **Compare two document versions** side-by-side with AI-powered delta analysis
+- **Extract structured registers** (risks, requirements, actions, stakeholders) via configurable schemas
+- **Analytics dashboard** with validation trends, common issues, and recent activity
+- **Clause Library** to save, search, and reuse reusable professional text blocks
 - Chat with your project documents using RAG-backed conversational AI
 - Validate single documents against configurable quality rubrics with AI scoring and rewrite
 - Batch validate multiple documents from Excel/CSV upload or directly from SharePoint
@@ -86,6 +91,40 @@ Browse and select files directly from a Microsoft SharePoint site:
 - Navigable folder tree with breadcrumb trail.
 - File metadata (size, last modified, type icons).
 - Used as an upload source in both Validate Document and Batch Validation.
+
+### Bid / Proposal Response Generator
+Generate a competitive proposal response document from any RFP, brief, or opportunity document:
+- Parses the source document via the same pipeline as SOW and PPT.
+- Generates 8 structured sections: Executive Overview, Understanding of Requirements, Proposed Approach, Solution Architecture, Delivery Plan, Team & Governance, Why Choose BSBI, Next Steps.
+- Branded DOCX output with the same BSBI styling as SOW.
+- Accepts optional "our key strengths" bullet points to personalise the response.
+
+### Document Comparison
+Compare two document versions side-by-side with AI analysis:
+- Paste or upload two documents (Doc A = original, Doc B = revised).
+- Returns an overall sentiment (improved / regressed / neutral), quality scores for both documents, a list of key improvements, a list of regressions, and a detailed change table by section.
+- No document storage required — works on any two text bodies.
+
+### Structured Data Extractor
+Extract any type of structured entity from a document and download a formatted register:
+- Five built-in schemas: Risks & Mitigations, Requirements, Action Items, Stakeholders, Decisions.
+- Custom schemas: define your own entity label and fields.
+- Results rendered as an in-page table and exported as a branded DOCX register.
+- Custom schemas are user-owned and persist across sessions (built-in schemas cannot be deleted).
+
+### Analytics Dashboard
+Organisation-level visibility into document quality and activity:
+- Overview stats: total documents parsed, artifacts generated, validations run, average compliance score, pass rate, saved clauses.
+- Validation quality trend chart (bar chart, last 30 days, colour-coded by score band).
+- Most common issues list aggregated across all validation results.
+- Recent activity feed (documents, artifacts, validations, clauses).
+
+### Clause Library
+Save, search, and reuse professional text blocks:
+- Auto-extract reusable clauses from any document using the LLM (identifies governance statements, scope paragraphs, methodology descriptions, etc.).
+- Add clauses manually with a title, content, and comma-separated tags.
+- Keyword search across all clauses.
+- One-click copy to clipboard for insertion into new documents.
 
 ### Admin
 User management panel (admin-only):
@@ -407,6 +446,27 @@ ollama pull mxbai-embed-large
 - `POST /api/v1/embedding/config`
 - `POST /api/v1/generate/sow`
 - `POST /api/v1/generate/pptx`
+- `POST /api/v1/generate/bid`
+
+### Comparison
+- `POST /api/v1/compare`
+
+### Structured Extraction
+- `GET /api/v1/extraction-schemas`
+- `POST /api/v1/extraction-schemas`
+- `GET /api/v1/extraction-schemas/{id}`
+- `DELETE /api/v1/extraction-schemas/{id}`
+- `POST /api/v1/extract`
+
+### Analytics
+- `GET /api/v1/analytics`
+
+### Clause Library
+- `GET /api/v1/clauses`
+- `POST /api/v1/clauses`
+- `DELETE /api/v1/clauses/{id}`
+- `GET /api/v1/clauses/search`
+- `POST /api/v1/clauses/auto-extract`
 
 ### Artifacts
 - `GET /api/v1/artifacts`
@@ -468,12 +528,16 @@ Included:
 - Project-scoped parsing (docx, pdf, txt)
 - Local embeddings + pgvector retrieval
 - Dynamic provider/model catalog
-- Branded SOW and PPT generation
+- Branded SOW, PPT, and Bid Response generation
 - RAG chat with session memory
 - Configurable rubric-based document validation (single + batch)
 - SharePoint file browser integration
 - Excel auto-detection (NDA MPPR multi-row format + generic tabular)
 - Admin user management panel
+- **Document Comparison** — side-by-side delta analysis of two document versions
+- **Structured Data Extractor** — configurable schema-based entity extraction to DOCX register
+- **Analytics Dashboard** — validation trends, common issues, recent activity
+- **Clause Library** — save, search, and reuse professional text blocks with auto-extract
 
 Not included yet:
 - Background job queue for long-running batch jobs

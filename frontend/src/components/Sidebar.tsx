@@ -1,4 +1,4 @@
-import { ClipboardCheck, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield } from "lucide-react";
+import { ArrowUpDown, BarChart2, BookMarked, BookOpen, BookText, ClipboardCheck, FolderOpen, LayoutDashboard, Layers, Library, LogOut, MessageSquare, Settings, Shield, Table2, Wand2 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
@@ -53,6 +53,54 @@ const Sidebar = () => {
           Output Library
         </NavLink>
 
+        <NavLink
+          to="/projects"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <FolderOpen size={16} />
+          Projects
+        </NavLink>
+
+        <NavLink
+          to="/templates"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <Wand2 size={16} />
+          Templates
+        </NavLink>
+
+        <NavLink
+          to="/compare"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <ArrowUpDown size={16} />
+          Compare Docs
+        </NavLink>
+
+        <NavLink
+          to="/extract"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <Table2 size={16} />
+          Extract Data
+        </NavLink>
+
+        <NavLink
+          to="/clauses"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <BookOpen size={16} />
+          Clause Library
+        </NavLink>
+
+        <NavLink
+          to="/case-study"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <BookMarked size={16} />
+          Case Studies
+        </NavLink>
+
         <span className="nav-section-label">Validation</span>
 
         <NavLink
@@ -71,6 +119,16 @@ const Sidebar = () => {
           Batch Validation
         </NavLink>
 
+        <span className="nav-section-label">Insights</span>
+
+        <NavLink
+          to="/analytics"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <BarChart2 size={16} />
+          Analytics
+        </NavLink>
+
         <span className="nav-section-label">Configuration</span>
 
         <NavLink
@@ -79,6 +137,14 @@ const Sidebar = () => {
         >
           <Settings size={16} />
           AI Settings
+        </NavLink>
+
+        <NavLink
+          to="/docs"
+          className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        >
+          <BookText size={16} />
+          Documentation
         </NavLink>
 
         {user?.is_admin && (

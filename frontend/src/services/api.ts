@@ -1,24 +1,49 @@
 import type {
+  AnalyticsDashboard,
+  ArtifactFeedbackRecord,
+  ArtifactFeedbackRequest,
   AuthResponse,
+  GenerateCaseStudyRequest,
   BatchValidateResponse,
   ChatRequest,
   ChatResponse,
-  UseCaseAssessment,
+  ClauseAutoExtractRequest,
+  ClauseCreateRequest,
+  ClauseRecord,
+  ClauseSearchResponse,
+  CompareRequest,
+  ComparisonResult,
+  ExtractionResult,
+  ExtractionSchemaCreateRequest,
+  ExtractionSchemaRecord,
+  ExtractionSchemaSummary,
+  ExtractRequest,
+  GenerateBidRequest,
   GeneratePptxRequest,
   GenerateResult,
+  GenerationTemplateCreateRequest,
+  GenerationTemplateRecord,
+  GenerationTemplateSummary,
   GenerateSowRequest,
   LLMProvider,
   EmbeddingCatalog,
   ParseResponse,
+  ProjectCreateRequest,
+  ProjectOverview,
+  ProjectResponse,
   ProviderCatalogResponse,
   RubricCreateRequest,
   RubricRecord,
   RubricSummary,
+  ShareLinkCreateRequest,
+  ShareLinkRecord,
   SharePointLibrary,
   SharePointFilesResponse,
   SharePointSite,
   SummarizeRequest,
   SummarizeResponse,
+  TemplateType,
+  UseCaseAssessment,
   ValidateRequest,
   ValidationResult,
 } from "../types/app";
@@ -249,13 +274,14 @@ export const validateDocument = async (
 
 export const validateBatch = async (
   file: File,
-  options: AuthOptions & { rubricId?: number | null; llmProvider?: string; llmModel?: string | null },
+  options: AuthOptions & { rubricId?: number | null; llmProvider?: string; llmModel?: string | null; projectId?: number | null },
 ): Promise<BatchValidateResponse> => {
   const form = new FormData();
   form.append("file", file);
   form.append("llm_provider", options.llmProvider ?? "openai");
   if (options.rubricId != null) form.append("rubric_id", String(options.rubricId));
   if (options.llmModel) form.append("llm_model", options.llmModel);
+  if (options.projectId != null) form.append("project_id", String(options.projectId));
   return requestJson<BatchValidateResponse>(`${API_BASE_URL}/api/v1/validate/batch`, {
     method: "POST",
     headers: authHeaders(options.token),
@@ -343,3 +369,287 @@ export const downloadArtifact = async (
   anchor.remove();
   URL.revokeObjectURL(objectUrl);
 };
+
+// ── Bid API ───────────────────────────────────────────────────────────────────
+
+export const generateBid = async (
+  payload: GenerateBidRequest,
+  options: AuthOptions,
+): Promise<GenerateResult> => {
+  return requestJson<GenerateResult>(`${API_BASE_URL}/api/v1/generate/bid`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Comparison API ────────────────────────────────────────────────────────────
+
+export const compareDocuments = async (
+  payload: CompareRequest,
+  options: AuthOptions,
+): Promise<ComparisonResult> => {
+  return requestJson<ComparisonResult>(`${API_BASE_URL}/api/v1/compare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Extraction schema API ─────────────────────────────────────────────────────
+
+export const listExtractionSchemas = async (options: AuthOptions): Promise<ExtractionSchemaSummary[]> => {
+  return requestJson<ExtractionSchemaSummary[]>(`${API_BASE_URL}/api/v1/extraction-schemas`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const getExtractionSchema = async (schemaId: number, options: AuthOptions): Promise<ExtractionSchemaRecord> => {
+  return requestJson<ExtractionSchemaRecord>(`${API_BASE_URL}/api/v1/extraction-schemas/${schemaId}`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const createExtractionSchema = async (
+  payload: ExtractionSchemaCreateRequest,
+  options: AuthOptions,
+): Promise<ExtractionSchemaRecord> => {
+  return requestJson<ExtractionSchemaRecord>(`${API_BASE_URL}/api/v1/extraction-schemas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const deleteExtractionSchema = async (schemaId: number, options: AuthOptions): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/extraction-schemas/${schemaId}`, {
+    method: "DELETE",
+    headers: authHeaders(options.token),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text(), null);
+};
+
+export const extractStructuredData = async (
+  payload: ExtractRequest,
+  options: AuthOptions,
+): Promise<ExtractionResult> => {
+  return requestJson<ExtractionResult>(`${API_BASE_URL}/api/v1/extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Analytics API ─────────────────────────────────────────────────────────────
+
+export const getAnalytics = async (options: AuthOptions): Promise<AnalyticsDashboard> => {
+  return requestJson<AnalyticsDashboard>(`${API_BASE_URL}/api/v1/analytics`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+// ── Clause Library API ────────────────────────────────────────────────────────
+
+export const listClauses = async (options: AuthOptions & { projectId?: number | null }): Promise<ClauseRecord[]> => {
+  const url = options.projectId
+    ? `${API_BASE_URL}/api/v1/clauses?project_id=${options.projectId}`
+    : `${API_BASE_URL}/api/v1/clauses`;
+  return requestJson<ClauseRecord[]>(url, { headers: authHeaders(options.token) });
+};
+
+export const createClause = async (
+  payload: ClauseCreateRequest,
+  options: AuthOptions,
+): Promise<ClauseRecord> => {
+  return requestJson<ClauseRecord>(`${API_BASE_URL}/api/v1/clauses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const deleteClause = async (clauseId: number, options: AuthOptions): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/clauses/${clauseId}`, {
+    method: "DELETE",
+    headers: authHeaders(options.token),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text(), null);
+};
+
+export const searchClauses = async (q: string, options: AuthOptions): Promise<ClauseSearchResponse> => {
+  return requestJson<ClauseSearchResponse>(
+    `${API_BASE_URL}/api/v1/clauses/search?q=${encodeURIComponent(q)}`,
+    { headers: authHeaders(options.token) },
+  );
+};
+
+export const autoExtractClauses = async (
+  payload: ClauseAutoExtractRequest,
+  options: AuthOptions,
+): Promise<ClauseRecord[]> => {
+  return requestJson<ClauseRecord[]>(`${API_BASE_URL}/api/v1/clauses/auto-extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Case Study API ────────────────────────────────────────────────────────────
+
+export const generateCaseStudy = async (
+  payload: GenerateCaseStudyRequest,
+  options: AuthOptions,
+): Promise<GenerateResult> => {
+  return requestJson<GenerateResult>(`${API_BASE_URL}/api/v1/generate/case-study`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Projects API ─────────────────────────────────────────────────────────────
+
+export const listProjects = async (options: AuthOptions): Promise<ProjectResponse[]> => {
+  return requestJson<ProjectResponse[]>(`${API_BASE_URL}/api/v1/projects`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const createProject = async (
+  payload: ProjectCreateRequest,
+  options: AuthOptions,
+): Promise<ProjectResponse> => {
+  return requestJson<ProjectResponse>(`${API_BASE_URL}/api/v1/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+// ── Template Library API ──────────────────────────────────────────────────────
+
+export const listTemplates = async (
+  options: AuthOptions & { templateType?: TemplateType | null },
+): Promise<GenerationTemplateSummary[]> => {
+  const url = options.templateType
+    ? `${API_BASE_URL}/api/v1/templates?template_type=${options.templateType}`
+    : `${API_BASE_URL}/api/v1/templates`;
+  return requestJson<GenerationTemplateSummary[]>(url, { headers: authHeaders(options.token) });
+};
+
+export const getTemplate = async (
+  templateId: number,
+  options: AuthOptions,
+): Promise<GenerationTemplateRecord> => {
+  return requestJson<GenerationTemplateRecord>(`${API_BASE_URL}/api/v1/templates/${templateId}`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+export const createTemplate = async (
+  payload: GenerationTemplateCreateRequest,
+  options: AuthOptions,
+): Promise<GenerationTemplateRecord> => {
+  return requestJson<GenerationTemplateRecord>(`${API_BASE_URL}/api/v1/templates`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+    body: JSON.stringify(payload),
+  });
+};
+
+export const deleteTemplate = async (templateId: number, options: AuthOptions): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/templates/${templateId}`, {
+    method: "DELETE",
+    headers: authHeaders(options.token),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text(), null);
+};
+
+// ── Artifact Feedback API ─────────────────────────────────────────────────────
+
+export const submitFeedback = async (
+  artifactId: number,
+  payload: ArtifactFeedbackRequest,
+  options: AuthOptions,
+): Promise<ArtifactFeedbackRecord> => {
+  return requestJson<ArtifactFeedbackRecord>(
+    `${API_BASE_URL}/api/v1/artifacts/${artifactId}/feedback`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+      body: JSON.stringify(payload),
+    },
+  );
+};
+
+export const getFeedback = async (
+  artifactId: number,
+  options: AuthOptions,
+): Promise<ArtifactFeedbackRecord[]> => {
+  return requestJson<ArtifactFeedbackRecord[]>(
+    `${API_BASE_URL}/api/v1/artifacts/${artifactId}/feedback`,
+    { headers: authHeaders(options.token) },
+  );
+};
+
+// ── Share Links API ───────────────────────────────────────────────────────────
+
+export const createShareLink = async (
+  artifactId: number,
+  payload: ShareLinkCreateRequest,
+  options: AuthOptions,
+): Promise<ShareLinkRecord> => {
+  return requestJson<ShareLinkRecord>(
+    `${API_BASE_URL}/api/v1/artifacts/${artifactId}/share`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(options.token) },
+      body: JSON.stringify(payload),
+    },
+  );
+};
+
+export const listShareLinks = async (
+  artifactId: number,
+  options: AuthOptions,
+): Promise<ShareLinkRecord[]> => {
+  return requestJson<ShareLinkRecord[]>(
+    `${API_BASE_URL}/api/v1/artifacts/${artifactId}/share`,
+    { headers: authHeaders(options.token) },
+  );
+};
+
+export const revokeShareLink = async (token: string, options: AuthOptions): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/share/${token}`, {
+    method: "DELETE",
+    headers: authHeaders(options.token),
+  });
+  if (!response.ok) throw new ApiError(response.status, await response.text(), null);
+};
+
+export const getSharedArtifact = async (token: string): Promise<ShareLinkRecord> => {
+  return requestJson<ShareLinkRecord>(`${API_BASE_URL}/api/v1/share/${token}`);
+};
+
+// ── Project Overview API ──────────────────────────────────────────────────────
+
+export const getProjectOverview = async (
+  projectId: number,
+  options: AuthOptions,
+): Promise<ProjectOverview> => {
+  return requestJson<ProjectOverview>(`${API_BASE_URL}/api/v1/projects/${projectId}/overview`, {
+    headers: authHeaders(options.token),
+  });
+};
+
+// ── Validation Detail API ─────────────────────────────────────────────────────
+
+export const getValidationDetail = async (
+  validationId: number,
+  options: AuthOptions,
+): Promise<ValidationDetail> => {
+  return requestJson<ValidationDetail>(`${API_BASE_URL}/api/v1/validations/${validationId}`, {
+    headers: authHeaders(options.token),
+  });
+};
+

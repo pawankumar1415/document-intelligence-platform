@@ -54,7 +54,7 @@ Rules:
 - Slide titles MUST be punchy and under 8 words. Use title case.
 - Bullets MUST be concise (max 16 words), actionable, and grounded in source data.
 - Use varied slide types to create visual rhythm: section dividers, key metrics, two-column comparisons, and a closing slide.
-- If quantitative data exists in the source, surface it in a metrics slide.
+- Metrics slide bullets MUST follow the exact format "Value — Description" where Value is a specific number, percentage, or quantity from the source (e.g. "40% — Reduction in document search time"). If no specific figure exists in the source, write "TBC — Description" — never write a bare "%" or unit without a leading number.
 - Ground every claim in the provided source material. Write "To be confirmed" for missing data — never invent facts.
 - Return ONLY valid JSON. No markdown, no commentary.
 """
@@ -73,15 +73,15 @@ Return ONLY JSON matching this schema:
   ]
 }}
 
-Generate slides for a {max_slides}-slide deck in this order:
+Generate exactly 9 slides in this order. All 9 slides are mandatory — do not omit any:
 1. slide_type "section_divider" — title: "Executive Overview" (no bullets)
 2. slide_type "content" — Executive Summary with 4-5 key bullets
 3. slide_type "content" — Scope and Approach with 4-5 bullets
-4. slide_type "metrics" — Key Numbers / Metrics (3-4 bullets in format "Value — Description")
+4. slide_type "metrics" — Key Numbers / Metrics with 3-4 bullets. Each bullet MUST follow the format "Value — Description" where Value is a number or percentage from the source (e.g. "40% — Reduction in document search time", "16 weeks — Total implementation timeline"). If no specific figure is stated, write "TBC — Description". Never write a bare "%" without a leading number.
 5. slide_type "two_column" — Strengths vs Risks (left_column = benefits/capabilities, right_column = risks/limitations/challenges found in the source — look in sections named "Current Challenges", "Risks", "Limitations", "Out of Scope", or Phase descriptions)
 6. slide_type "content" — Deliverables with 4-5 bullets
 7. slide_type "section_divider" — title: "Timeline & Next Steps" (no bullets)
-8. slide_type "content" — Implementation Timeline with 3-5 bullets
+8. slide_type "content" — Implementation Timeline with 3-5 bullets describing each phase and its duration
 9. slide_type "closing" — Next Steps with 3-4 action items as bullets
 
 Deck title: {deck_title}
@@ -158,7 +158,6 @@ class PptGenerator:
     def _build_slides_from_llm(self, request: GeneratePptxRequest, retrieval_context: list[str]) -> list[GeneratedSlide] | None:
         context_blob = self._build_context_blob(request.source_document, retrieval_context)
         user_prompt = PPT_USER_PROMPT_TEMPLATE.format(
-            max_slides=request.max_content_slides,
             deck_title=request.deck_title,
             subtitle=request.subtitle or "",
             context_blob=context_blob,
@@ -179,14 +178,36 @@ class PptGenerator:
                 slide_type = str(item.get("slide_type", "content")).strip()
                 if slide_type not in ("content", "section_divider", "metrics", "two_column", "closing"):
                     slide_type = "content"
+                raw_bullets = [str(b).strip() for b in item.get("bullets", []) if str(b).strip()]
+                bullets = self._prepare_bullets(raw_bullets)[:5]
                 slides.append(GeneratedSlide(
                     title=self._clean_title(title),
-                    bullets=self._prepare_bullets([str(b).strip() for b in item.get("bullets", []) if str(b).strip()])[:5],
+                    bullets=bullets,
                     slide_type=slide_type,
                     left_column=self._prepare_bullets([str(b).strip() for b in item.get("left_column", []) if str(b).strip()]),
                     right_column=self._prepare_bullets([str(b).strip() for b in item.get("right_column", []) if str(b).strip()]),
                 ))
-            return slides or None
+
+            # ── Post-process: fix metrics slide bullet values ───────────────
+            # If every metric value is a bare placeholder (no leading digit),
+            # normalise to "TBC — description". If after normalisation all
+            # values are TBC, downgrade the slide to a regular content slide.
+            final_slides: list[GeneratedSlide] = []
+            for slide in slides:
+                if slide.slide_type == "metrics":
+                    normalised = [self._normalise_metric_bullet(b) for b in slide.bullets]
+                    all_tbc = all(b.startswith("TBC") for b in normalised)
+                    final_slides.append(GeneratedSlide(
+                        title=slide.title,
+                        bullets=normalised,
+                        slide_type="content" if all_tbc else "metrics",
+                        left_column=slide.left_column,
+                        right_column=slide.right_column,
+                    ))
+                else:
+                    final_slides.append(slide)
+
+            return final_slides or None
         except Exception:
             return None
 
@@ -728,6 +749,23 @@ class PptGenerator:
                 parts.append(f"--- Additional context ---\n{retrieval}")
 
         return "\n\n".join(parts)
+
+    def _normalise_metric_bullet(self, bullet: str) -> str:
+        """Ensure a metrics bullet has a real value before the separator.
+
+        Valid:   "40% — Reduction in search time"
+        Invalid: "% — Reduction in search time"  →  "TBC — Reduction in search time"
+        Invalid: "M+ documents supported"        →  "TBC — M+ documents supported"
+        """
+        parts = re.split(r"\s*[—–\-:]\s*", bullet, maxsplit=1)
+        value = parts[0].strip()
+        desc = parts[1].strip() if len(parts) > 1 else bullet.strip()
+        # Value is valid when it begins with a digit or a currency symbol
+        # followed by a digit (e.g. "40%", "16 weeks", "£2M", "$500k", "€1.2B")
+        if re.match(r"^[\d£$€¥]\d*", value):
+            return bullet
+        # Bare placeholder — rewrite with TBC so the card still renders cleanly
+        return f"TBC — {desc}"
 
     def _prepare_bullets(self, bullets: list[str]) -> list[str]:
         seen: list[str] = []

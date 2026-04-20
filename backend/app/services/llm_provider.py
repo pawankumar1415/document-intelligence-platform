@@ -283,6 +283,119 @@ def _extract_json_payload(text: str) -> dict:
     return {"raw": text}
 
 
+def generate_from_image(
+    *,
+    provider: LLMProvider,
+    image_bytes: bytes,
+    mime_type: str,
+    prompt: str,
+    model: str | None = None,
+    temperature: float = 0.0,
+) -> str:
+    """
+    Send an image to a vision-capable model and return the text response.
+
+    Supported providers:
+      - openai      → gpt-4o-mini (default) or any gpt-4* vision model
+      - azure_openai → configured deployment (must be a vision model)
+      - groq         → llama-4-scout-17b or llama-3.2-11b-vision-preview
+      - ollama       → requires a local vision model (e.g. llava, moondream2)
+
+    The image is sent as a base64 data-URL so no file upload is needed.
+    """
+    import base64
+
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{mime_type};base64,{b64}"
+
+    vision_message = {
+        "role": "user",
+        "content": [
+            {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
+            {"type": "text", "text": prompt},
+        ],
+    }
+
+    if provider == "openai":
+        client = _get_openai_client()
+        vision_model = model or env("OPENAI_VISION_MODEL") or "gpt-4o-mini"
+        resp = client.chat.completions.create(
+            model=vision_model,
+            temperature=temperature,
+            messages=[vision_message],
+            max_tokens=4096,
+        )
+        return resp.choices[0].message.content or ""
+
+    if provider == "azure_openai":
+        client = _get_azure_client()
+        deployment = model or env("AZURE_OPENAI_VISION_DEPLOYMENT") or env("AZURE_OPENAI_CHAT_DEPLOYMENT") or ""
+        resp = client.chat.completions.create(
+            model=deployment,
+            temperature=temperature,
+            messages=[vision_message],
+            max_tokens=4096,
+        )
+        return resp.choices[0].message.content or ""
+
+    if provider == "groq":
+        client = _get_groq_client()
+        # Groq vision models (in order of preference)
+        vision_model = model or "meta-llama/llama-4-scout-17b-16e-instruct"
+        try:
+            resp = client.chat.completions.create(
+                model=vision_model,
+                temperature=temperature,
+                messages=[vision_message],
+                max_tokens=4096,
+            )
+            return resp.choices[0].message.content or ""
+        except Exception:
+            # Fallback to older vision model
+            resp = client.chat.completions.create(
+                model="llama-3.2-11b-vision-preview",
+                temperature=temperature,
+                messages=[vision_message],
+                max_tokens=4096,
+            )
+            return resp.choices[0].message.content or ""
+
+    if provider == "ollama":
+        # Ollama image support: pass images array with base64 content
+        resolved_model = resolve_chat_model("ollama", model)
+        timeout_seconds = _env_int("OLLAMA_CHAT_TIMEOUT_SECONDS", 180)
+        keep_alive = env("OLLAMA_KEEP_ALIVE", "20m") or "20m"
+        import base64 as _b64
+        payload = json.dumps({
+            "model": resolved_model,
+            "messages": [{
+                "role": "user",
+                "content": prompt,
+                "images": [_b64.b64encode(image_bytes).decode("utf-8")],
+            }],
+            "stream": False,
+            "keep_alive": keep_alive,
+            "options": {"temperature": temperature, "num_predict": 4096},
+        }).encode("utf-8")
+        request = Request(
+            f"{_get_ollama_base_url().rstrip('/')}/api/chat",
+            headers={"Content-Type": "application/json"},
+            data=payload,
+        )
+        try:
+            with urlopen(request, timeout=timeout_seconds) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            msg = data.get("message", {})
+            return msg.get("content", "") if isinstance(msg, dict) else ""
+        except Exception as exc:
+            raise RuntimeError(
+                f"Ollama vision request failed. Ensure a vision model (e.g. llava, moondream2) "
+                f"is pulled and configured. Error: {exc}"
+            ) from exc
+
+    raise ValueError(f"Unsupported provider for vision: {provider}")
+
+
 def _env_int(name: str, default: int) -> int:
     raw = env(name)
     if raw is None:
