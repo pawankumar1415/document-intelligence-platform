@@ -12,3 +12,5 @@ sentence-transformers
 docling
 rapidocr_onnxruntime
 einops
+pdfplumber
+pypdf
