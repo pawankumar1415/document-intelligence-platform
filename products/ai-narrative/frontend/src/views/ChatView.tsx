@@ -1,0 +1,364 @@
+import {
+  AlertCircle,
+  BookOpen,
+  Bot,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  MessageSquare,
+  Send,
+  User,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import ModelControlBar from "../components/ModelControlBar";
+import { useAppState } from "../context/AppStateContext";
+import { sendChatMessage } from "../services/api";
+import type { ChatMessage, ChatSource, LLMProvider } from "../types/app";
+
+const PERIOD_OPTIONS = [
+  "Any period",
+  "P-01", "P-02", "P-03", "P-04", "P-05", "P-06",
+  "P-07", "P-08", "P-09", "P-10", "P-11", "P-12",
+];
+
+const SUGGESTED_QUESTIONS = [
+  "Which projects have a Red RAG status this period?",
+  "Summarise the cost position across all projects.",
+  "Which projects are at risk of missing their schedule milestones?",
+  "What are the key risks mentioned across narratives?",
+  "Compare the EAC P50 vs P80 across projects.",
+];
+
+interface UIMessage extends ChatMessage {
+  sources?: ChatSource[];
+}
+
+function SourcesPanel({ sources }: { sources: ChatSource[] }) {
+  const [open, setOpen] = useState(false);
+  if (sources.length === 0) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: "none", border: "none", cursor: "pointer", padding: 0,
+          display: "flex", alignItems: "center", gap: 4,
+          fontSize: "0.73rem", color: "var(--text-muted)", fontWeight: 600,
+        }}
+      >
+        <BookOpen size={11} />
+        {sources.length} source{sources.length !== 1 ? "s" : ""} used
+        {open ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+      </button>
+      {open && (
+        <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+          {sources.map((s, i) => (
+            <div
+              key={i}
+              style={{
+                background: "var(--bg-tertiary)", border: "1px solid var(--border-color)",
+                borderRadius: 6, padding: "8px 10px", fontSize: "0.75rem",
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 3, color: "var(--text-primary)" }}>
+                {s.unique_id}
+                <span style={{ marginLeft: 6, fontWeight: 400, color: "var(--text-muted)" }}>
+                  similarity {(s.score * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div style={{ color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                {s.excerpt}…
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ChatView() {
+  const { token, llmProvider, llmModel, setProvider } = useAppState();
+
+  const [messages, setMessages] = useState<UIMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [period, setPeriod] = useState("Any period");
+  const [provider, setLocalProvider] = useState<LLMProvider>(llmProvider);
+  const [model, setModel] = useState<string | null>(llmModel);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [topK, setTopK] = useState(6);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setLocalProvider(llmProvider);
+    setModel(llmModel);
+  }, [llmProvider, llmModel]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  const handleProviderChange = (p: LLMProvider, m: string | null) => {
+    setLocalProvider(p);
+    setModel(m);
+    setProvider(p, m);
+  };
+
+  const buildQuery = (text: string): string => {
+    if (period === "Any period") return text;
+    return `[${period}] ${text}`;
+  };
+
+  const handleSend = async (text?: string) => {
+    const content = (text ?? input).trim();
+    if (!content || loading) return;
+
+    const userMsg: UIMessage = { role: "user", content: buildQuery(content) };
+    const history = [...messages, userMsg];
+    setMessages(history);
+    setInput("");
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await sendChatMessage(
+        {
+          messages: history.map((m) => ({ role: m.role, content: m.content })),
+          provider,
+          model: model ?? undefined,
+          top_k: topK,
+        },
+        { token }
+      );
+      setMessages([
+        ...history,
+        { role: "assistant", content: res.reply, sources: res.sources },
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Chat failed.");
+    } finally {
+      setLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleSend();
+    }
+  };
+
+  const clearChat = () => {
+    setMessages([]);
+    setError(null);
+  };
+
+  return (
+    <div className="page-container" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 48px)" }}>
+      <div className="page-header" style={{ flexShrink: 0 }}>
+        <h1 className="page-title">
+          <MessageSquare size={20} color="var(--bsbi-red)" /> Knowledge Base Chat
+        </h1>
+        <p className="page-subtitle">
+          Ask questions about your uploaded reference narratives. The assistant uses your library to answer.
+        </p>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 20, flex: 1, minHeight: 0 }}>
+
+        {/* LEFT: Controls */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, alignSelf: "start" }}>
+          <div className="card">
+            <h3 className="card-title">Settings</h3>
+
+            <label className="form-label">Period filter</label>
+            <select
+              className="form-control"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              style={{ marginBottom: 12 }}
+            >
+              {PERIOD_OPTIONS.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: 14 }}>
+              Prefixes your question with the selected period so the AI focuses on that reporting interval.
+            </div>
+
+            <label className="form-label">Reference depth (top-k)</label>
+            <input
+              className="form-control"
+              type="number" min={1} max={20} value={topK}
+              onChange={(e) => setTopK(Number(e.target.value))}
+              style={{ marginBottom: 14 }}
+            />
+
+            <ModelControlBar provider={provider} model={model} onChange={handleProviderChange} />
+          </div>
+
+          <div className="card">
+            <h3 className="card-title">Suggested questions</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {SUGGESTED_QUESTIONS.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void handleSend(q)}
+                  style={{
+                    textAlign: "left", background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-color)", borderRadius: 6,
+                    padding: "7px 10px", fontSize: "0.78rem", cursor: "pointer",
+                    color: "var(--text-secondary)", lineHeight: 1.4,
+                    transition: "border-color 0.15s",
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {messages.length > 0 && (
+            <button type="button" className="btn btn-secondary" onClick={clearChat} style={{ justifyContent: "center" }}>
+              Clear chat
+            </button>
+          )}
+        </div>
+
+        {/* RIGHT: Chat window */}
+        <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+
+          {/* Message list */}
+          <div
+            style={{
+              flex: 1, overflowY: "auto", padding: "4px 0 16px",
+              display: "flex", flexDirection: "column", gap: 16,
+            }}
+          >
+            {messages.length === 0 && !loading && (
+              <div className="score-empty" style={{ marginTop: 40 }}>
+                <Bot size={40} strokeWidth={1.2} />
+                <h2>Ask your knowledge base</h2>
+                <p>
+                  Questions are answered using your uploaded reference narratives.<br />
+                  Select a period filter or pick a suggested question to start.
+                </p>
+              </div>
+            )}
+
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  flexDirection: msg.role === "user" ? "row-reverse" : "row",
+                  gap: 10, alignItems: "flex-start",
+                }}
+              >
+                <div
+                  style={{
+                    width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+                    background: msg.role === "user" ? "var(--bsbi-red)" : "var(--bg-tertiary)",
+                    border: "1px solid var(--border-color)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  {msg.role === "user"
+                    ? <User size={14} color="#fff" />
+                    : <Bot size={14} color="var(--bsbi-red)" />}
+                </div>
+                <div style={{ maxWidth: "78%" }}>
+                  <div
+                    style={{
+                      background: msg.role === "user" ? "var(--bsbi-red)" : "var(--bg-primary)",
+                      color: msg.role === "user" ? "#fff" : "var(--text-primary)",
+                      border: msg.role === "user" ? "none" : "1px solid var(--border-color)",
+                      borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                      padding: "10px 14px",
+                      fontSize: "0.85rem",
+                      lineHeight: 1.6,
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {msg.content}
+                  </div>
+                  {msg.role === "assistant" && msg.sources && (
+                    <SourcesPanel sources={msg.sources} />
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <div
+                  style={{
+                    width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+                    background: "var(--bg-tertiary)", border: "1px solid var(--border-color)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <Bot size={14} color="var(--bsbi-red)" />
+                </div>
+                <div
+                  style={{
+                    background: "var(--bg-primary)", border: "1px solid var(--border-color)",
+                    borderRadius: "14px 14px 14px 4px", padding: "10px 14px",
+                    display: "flex", alignItems: "center", gap: 8, fontSize: "0.85rem",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  <Loader2 size={14} className="spin" /> Thinking…
+                </div>
+              </div>
+            )}
+
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Input bar */}
+          <div style={{ flexShrink: 0, paddingTop: 12, borderTop: "1px solid var(--border-color)" }}>
+            {error && (
+              <div className="message error" style={{ marginBottom: 8, fontSize: "0.8rem" }}>
+                <AlertCircle size={13} /> {error}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+              <textarea
+                ref={inputRef}
+                className="form-control"
+                rows={2}
+                placeholder={
+                  period !== "Any period"
+                    ? `Ask about ${period} narratives… (Enter to send, Shift+Enter for new line)`
+                    : "Ask about your reference narratives… (Enter to send)"
+                }
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={loading}
+                style={{ flex: 1, resize: "none", fontSize: "0.85rem" }}
+              />
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ padding: "10px 14px", alignSelf: "stretch" }}
+                disabled={loading || !input.trim()}
+                onClick={() => void handleSend()}
+              >
+                {loading ? <Loader2 size={15} className="spin" /> : <Send size={15} />}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
