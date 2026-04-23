@@ -68,3 +68,5 @@ backend/data/
 backend/output/
 Sentra Knowledge Base/
 test-documents/
+products/ai-narrative/data
+products/ai-narrative/frontend/node_modules
