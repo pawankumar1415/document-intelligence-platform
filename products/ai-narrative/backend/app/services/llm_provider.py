@@ -39,6 +39,14 @@ def _get_ollama_base_url() -> str:
     return env("OLLAMA_BASE_URL", "http://localhost:11434") or "http://localhost:11434"
 
 
+_THINK_RE = re.compile(r"<think(?:ing)?>\s*[\s\S]*?</think(?:ing)?>", re.IGNORECASE)
+
+
+def _strip_thinking_tags(text: str) -> str:
+    """Remove <think>…</think> and <thinking>…</thinking> blocks that some models emit."""
+    return _THINK_RE.sub("", text).strip()
+
+
 def _generate_json_with_ollama(
     *,
     model: str,
@@ -172,7 +180,7 @@ def generate_text(
             temperature=temperature,
             messages=messages,
         )
-        return response.choices[0].message.content or ""
+        return _strip_thinking_tags(response.choices[0].message.content or "")
 
     if provider == "azure_openai":
         client = _get_azure_client()
@@ -182,7 +190,7 @@ def generate_text(
             temperature=temperature,
             messages=messages,
         )
-        return response.choices[0].message.content or ""
+        return _strip_thinking_tags(response.choices[0].message.content or "")
 
     if provider == "ollama":
         resolved_model = resolve_chat_model("ollama", model)
@@ -196,7 +204,7 @@ def generate_text(
         temperature=temperature,
         messages=messages,
     )
-    return response.choices[0].message.content or ""
+    return _strip_thinking_tags(response.choices[0].message.content or "")
 
 
 def _generate_text_with_ollama(*, model: str, messages: list[dict], temperature: float) -> str:
@@ -237,17 +245,12 @@ def _generate_text_with_ollama(*, model: str, messages: list[dict], temperature:
 
     message = response_payload.get("message", {})
     content = message.get("content", "") if isinstance(message, dict) else response_payload.get("response", "")
-    # Strip think blocks if present
-    import re as _re
-    content = _re.sub(r"<think>[\s\S]*?</think>", "", str(content), flags=_re.IGNORECASE).strip()
-    return content
+    return _strip_thinking_tags(str(content))
 
 
 def _extract_json_payload(text: str) -> dict:
     # 1. Clean response: strip leading/trailing whitespace and any think-block wrappers
-    cleaned = text.strip()
-    # Remove <think>...</think> blocks some models emit
-    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = _strip_thinking_tags(text)
 
     # 2. Try strict parse on the cleaned text
     try:

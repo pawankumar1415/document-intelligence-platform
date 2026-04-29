@@ -259,8 +259,8 @@ export default function BatchView() {
                     <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>{selectedFile.name}</span>
                     <span className="dropzone-hint">Click to change</span></>
                 ) : (
-                  <><UploadCloud size={24} /><span>Click to upload Excel / CSV</span>
-                    <span className="dropzone-hint">.xlsx · .xls · .csv</span></>
+                  <><UploadCloud size={24} /><span>Click to upload file</span>
+                    <span className="dropzone-hint">.xlsx · .xls · .csv · .docx · .pdf</span></>
                 )}
               </div>
             )}
@@ -289,7 +289,7 @@ export default function BatchView() {
                 ) : !spDownloading && (
                   <SharePointPicker
                     token={token}
-                    acceptExtensions={[".xlsx", ".xls", ".csv"]}
+                    acceptExtensions={[".xlsx", ".xls", ".csv", ".docx", ".pdf"]}
                     onSelect={(file, libraryId) => void handleSharePointSelect(file, libraryId)}
                     disabled={spDownloading}
                   />

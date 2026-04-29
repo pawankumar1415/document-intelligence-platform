@@ -54,7 +54,7 @@ _runtime_embedding_model_id: str | None = None
 def configured_embedding_backend() -> str:
     if _runtime_embedding_backend:
         return _runtime_embedding_backend
-    return env("EMBEDDING_BACKEND", "huggingface_local") or "huggingface_local"
+    return env("EMBEDDING_BACKEND", "ollama") or "ollama"
 
 
 def configured_embedding_model_id() -> str:

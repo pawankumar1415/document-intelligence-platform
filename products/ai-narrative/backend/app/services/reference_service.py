@@ -24,6 +24,30 @@ from backend.app.services.vector_store import (
 
 logger = logging.getLogger(__name__)
 
+_DETECTION_SAMPLE_SIZE = 10
+
+
+def _trigger_domain_detection(records: list[dict], user_id: int) -> None:
+    """Run domain detection on a sample of records and persist the profile. Non-blocking."""
+    try:
+        from backend.app.services.domain_detector import detect_domain
+        from backend.app.services import persistence
+
+        sample = [r for r in records if r.get("narrative_text", "").strip()][:_DETECTION_SAMPLE_SIZE]
+        if not sample:
+            return
+
+        profile = detect_domain(sample_records=sample)
+        persistence.save_domain_profile(user_id, profile, confidence=profile.get("confidence", 0.0))
+        logger.info(
+            "Domain detected for user %d: '%s' (confidence %.2f)",
+            user_id,
+            profile.get("domain_name") or "unknown",
+            profile.get("confidence", 0.0),
+        )
+    except Exception as exc:
+        logger.warning("Domain detection skipped for user %d: %s", user_id, exc)
+
 
 def ingest_reference_file(
     raw_bytes: bytes,
@@ -91,6 +115,9 @@ def ingest_reference_file(
             }
     else:
         logger.warning("pgvector not configured — reference file saved without embeddings.")
+
+    # 5. Trigger domain detection (non-blocking — errors are logged, not raised)
+    _trigger_domain_detection(valid_records, user_id)
 
     return {
         "status": "ok",

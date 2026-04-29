@@ -89,15 +89,18 @@ def init_vector_store() -> None:
                 );
             """)
 
-            existing_dim = _get_existing_dimension(cur)
-            if existing_dim is not None and existing_dim != configured_dimension:
+            existing_dim = _get_existing_dimension(cur, "reference_narratives")
+            scored_dim = _get_existing_dimension(cur, "scored_narratives")
+            mismatch_dim = existing_dim or scored_dim
+            if mismatch_dim is not None and mismatch_dim != configured_dimension:
                 if reset_on_mismatch:
                     _reset_schema(cur)
                     existing_dim = None
                 else:
                     raise RuntimeError(
                         f"Embedding dimension mismatch: configured={configured_dimension}, "
-                        f"existing={existing_dim}. Set VECTOR_STORE_RESET_ON_MISMATCH=true to reset."
+                        f"existing={mismatch_dim}. Set VECTOR_STORE_RESET_ON_MISMATCH=true to reset "
+                        f"(warning: all stored vectors will be deleted and reference files must be re-ingested)."
                     )
 
             cur.execute(f"""
@@ -119,6 +122,23 @@ def init_vector_store() -> None:
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_ref_narratives_user
                 ON reference_narratives (user_id);
+            """)
+
+            # Scored narratives — every narrative that passes through run_score gets indexed here
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS scored_narratives (
+                    id             BIGSERIAL PRIMARY KEY,
+                    user_id        INTEGER   NOT NULL,
+                    unique_id      TEXT      NOT NULL,
+                    narrative_text TEXT      NOT NULL,
+                    embedding      VECTOR({configured_dimension}) NOT NULL,
+                    scored_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (user_id, unique_id)
+                );
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scored_narratives_user
+                ON scored_narratives (user_id);
             """)
             cur.execute("""
                 INSERT INTO vector_store_config (id, embedding_backend, embedding_model_id, embedding_dim)
@@ -204,6 +224,101 @@ def query_similar_references(
     ]
 
 
+def upsert_scored_narrative(
+    *,
+    user_id: int,
+    unique_id: str,
+    narrative_text: str,
+    embedding: list[float],
+) -> None:
+    """Index a scored narrative into pgvector so it is searchable from chat."""
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO scored_narratives (user_id, unique_id, narrative_text, embedding)
+                VALUES (%s, %s, %s, %s::vector)
+                ON CONFLICT (user_id, unique_id) DO UPDATE
+                SET narrative_text = EXCLUDED.narrative_text,
+                    embedding      = EXCLUDED.embedding,
+                    scored_at      = NOW();
+                """,
+                (user_id, unique_id, narrative_text, _ensure_vector_literal(embedding)),
+            )
+        conn.commit()
+
+
+def query_all_narratives(
+    *,
+    user_id: int,
+    query_embedding: list[float],
+    limit: int = 6,
+) -> list[ReferenceMatch]:
+    """Search both reference_narratives and scored_narratives, return top matches."""
+    vec = _ensure_vector_literal(query_embedding)
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT unique_id, narrative_text, narrative_text AS content,
+                       1 - (embedding <=> %s::vector) AS score,
+                       'reference' AS source
+                FROM reference_narratives
+                WHERE user_id = %s
+
+                UNION ALL
+
+                SELECT unique_id, narrative_text, narrative_text AS content,
+                       1 - (embedding <=> %s::vector) AS score,
+                       'scored' AS source
+                FROM scored_narratives
+                WHERE user_id = %s
+
+                ORDER BY score DESC
+                LIMIT %s;
+                """,
+                (vec, user_id, vec, user_id, limit),
+            )
+            rows = cur.fetchall()
+
+    seen: set[str] = set()
+    results: list[ReferenceMatch] = []
+    for row in rows:
+        uid = row[0]
+        if uid in seen:
+            continue
+        seen.add(uid)
+        results.append(ReferenceMatch(
+            unique_id=uid,
+            narrative_text=row[1],
+            content=row[2],
+            score=float(row[3]),
+        ))
+    return results[:limit]
+
+
+def get_available_periods(user_id: int) -> list[str]:
+    """Return sorted list of period tags (e.g. ['P-06', 'P-07']) found in unique_ids for this user."""
+    import re
+    _PERIOD_RE = re.compile(r"\bP[-–]?(\d{2})\b", re.IGNORECASE)
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT unique_id FROM reference_narratives WHERE user_id = %s
+                UNION
+                SELECT DISTINCT unique_id FROM scored_narratives WHERE user_id = %s;
+                """,
+                (user_id, user_id),
+            )
+            rows = cur.fetchall()
+    periods: set[str] = set()
+    for (uid,) in rows:
+        for m in _PERIOD_RE.finditer(uid or ""):
+            periods.add(f"P-{m.group(1).zfill(2)}")
+    return sorted(periods)
+
+
 def delete_reference_file_vectors(file_id: int) -> None:
     """Remove all vectors for a given reference file."""
     with _connect() as conn:
@@ -222,17 +337,18 @@ def vector_store_status() -> dict[str, Any]:
     }
 
 
-def _get_existing_dimension(cur) -> int | None:
+def _get_existing_dimension(cur, table: str = "reference_narratives") -> int | None:
     row = cur.execute(
         """
         SELECT format_type(a.atttypid, a.atttypmod)
         FROM pg_attribute a
         JOIN pg_class c ON c.oid = a.attrelid
         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE c.relname = 'reference_narratives'
+        WHERE c.relname = %s
           AND a.attname = 'embedding'
           AND n.nspname = current_schema();
-        """
+        """,
+        (table,),
     ).fetchone()
     if not row or not row[0]:
         return None
@@ -244,4 +360,5 @@ def _get_existing_dimension(cur) -> int | None:
 
 def _reset_schema(cur) -> None:
     cur.execute("DROP TABLE IF EXISTS reference_narratives;")
+    cur.execute("DROP TABLE IF EXISTS scored_narratives;")
     cur.execute("DELETE FROM vector_store_config WHERE id = 1;")

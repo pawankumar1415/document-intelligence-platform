@@ -15,6 +15,7 @@ from backend.app.services.excel_parser import (
     parse_excel_for_scoring,
     parse_pdf_for_scoring,
 )
+from backend.app.config import default_llm_provider
 from backend.app.services.llm_provider import LLMProvider
 from backend.app.services.narrative_scorer import run_score
 from backend.app.services import persistence
@@ -27,7 +28,7 @@ def run_batch_score(
     filename: str,
     user_id: int,
     rubric_id: int | None = None,
-    provider: LLMProvider = "openai",
+    provider: LLMProvider | None = None,
     model: str | None = None,
     top_k_references: int = 5,
     id_column: str | None = None,
@@ -38,6 +39,7 @@ def run_batch_score(
 
     Returns a BatchScoreResponse-shaped dict.
     """
+    provider = provider or default_llm_provider()  # type: ignore[assignment]
     # 1. Parse file
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     if ext == "csv":

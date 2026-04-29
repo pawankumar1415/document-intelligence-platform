@@ -43,3 +43,12 @@ def env_required(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing required environment variable: {name}")
     return value
+
+
+_VALID_LLM_PROVIDERS = {"openai", "groq", "azure_openai", "ollama"}
+
+
+def default_llm_provider() -> str:
+    """Return the default LLM provider from DEFAULT_LLM_PROVIDER env var, falling back to ollama."""
+    raw = (env("DEFAULT_LLM_PROVIDER") or "ollama").strip().lower()
+    return raw if raw in _VALID_LLM_PROVIDERS else "ollama"

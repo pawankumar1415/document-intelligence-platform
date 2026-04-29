@@ -2,38 +2,77 @@
 chat_service.py — RAG-based chat over a user's ingested reference narratives.
 
 Each chat turn:
-  1. Embeds the user's question.
-  2. Retrieves the most similar reference chunks owned by that user.
-  3. Feeds the chunks as context to the LLM with a system prompt that
-     understands NDA period notation (P-06, P-07, P-08 …).
-  4. Returns the assistant reply plus source snippets for transparency.
+  1. Loads the user's detected domain profile (auto-detected on reference ingest).
+  2. Embeds the user's question.
+  3. Retrieves the most similar narrative chunks owned by that user.
+  4. Builds a domain-aware system prompt from the profile.
+  5. Returns the assistant reply plus source snippets for transparency.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
+from backend.app.config import default_llm_provider
 from backend.app.services.embedding_service import embed_query
 from backend.app.services.llm_provider import LLMProvider, generate_text
-from backend.app.services.vector_store import query_similar_references
+from backend.app.services.vector_store import query_all_narratives
 
-_SYSTEM_PROMPT = """\
-You are an expert analyst assistant for a Nuclear Decommissioning Authority (NDA) \
-project portfolio. You have access to a library of project narratives uploaded by \
-the user.
+logger = logging.getLogger(__name__)
 
-Key conventions you understand:
-- Periods are denoted as P-01 through P-12 (e.g. P-06, P-07, P-08). Each period \
-  is a reporting interval, typically four-weekly or monthly.
-- Projects are identified by codes like "P06 | Project Name" where P06 is the period.
-- RAG status: R = Red (major concern), A = Amber (minor concern), G = Green (on track).
-- EAC = Estimate At Completion; P50 = 50th percentile cost; P80 = 80th percentile cost.
-- OBC = Outline Business Case; FBC = Full Business Case.
+_BASE_SYSTEM = """\
+You are an expert analyst assistant for a project portfolio reporting system. \
+You have access to a library of project narratives uploaded by the user.
 
-Answer questions based ONLY on the provided reference narratives. If the answer is \
-not in the references, say so clearly. Be concise, factual, and cite the source \
-project by name when possible.
+When reference narratives are provided, answer from them and cite the source project \
+by name or ID. If no references are available or the answer is not in the references, \
+still try to answer using your general knowledge of project reporting conventions — \
+but clearly state that you are not drawing from uploaded documents. \
+Be concise and factual.\
 """
+
+_DOMAIN_CONTEXT_TEMPLATE = """\
+
+
+DOMAIN CONTEXT (detected from uploaded data):
+Domain: {domain_name}
+{period_section}\
+{status_section}\
+{terms_section}\
+"""
+
+
+def _build_system_prompt(domain_profile: dict | None) -> str:
+    """Compose the system prompt, injecting domain context if a profile exists."""
+    if not domain_profile or not domain_profile.get("domain_name"):
+        return _BASE_SYSTEM
+
+    period_section = ""
+    if domain_profile.get("period_format"):
+        label = domain_profile.get("period_label", "Period")
+        fmt = domain_profile["period_format"]
+        period_section = f"Reporting {label}s: {fmt}\n"
+
+    status_section = ""
+    status_codes = domain_profile.get("status_codes") or {}
+    if status_codes:
+        lines = ", ".join(f"{k} = {v}" for k, v in status_codes.items())
+        status_section = f"Status codes: {lines}\n"
+
+    terms_section = ""
+    key_terms = domain_profile.get("key_terms") or {}
+    if key_terms:
+        lines = ", ".join(f"{k} = {v}" for k, v in key_terms.items())
+        terms_section = f"Key terms: {lines}\n"
+
+    context = _DOMAIN_CONTEXT_TEMPLATE.format(
+        domain_name=domain_profile["domain_name"],
+        period_section=period_section,
+        status_section=status_section,
+        terms_section=terms_section,
+    )
+    return _BASE_SYSTEM + context
 
 
 def _extract_period_filter(text: str) -> str | None:
@@ -45,6 +84,8 @@ def _extract_period_filter(text: str) -> str | None:
 
 
 def _build_context(matches: list) -> str:
+    if not matches:
+        return ""
     parts: list[str] = []
     for i, m in enumerate(matches, 1):
         parts.append(
@@ -58,7 +99,7 @@ def run_chat(
     *,
     user_id: int,
     messages: list[dict[str, str]],
-    provider: LLMProvider = "openai",
+    provider: LLMProvider | None = None,
     model: str | None = None,
     top_k: int = 6,
 ) -> dict[str, Any]:
@@ -76,37 +117,55 @@ def run_chat(
     """
     if not messages:
         raise ValueError("messages list is empty")
+    provider = provider or default_llm_provider()  # type: ignore[assignment]
 
     last_user = next(
         (m["content"] for m in reversed(messages) if m["role"] == "user"),
         "",
     )
 
-    # 1. Embed the user's question and retrieve relevant reference chunks
+    # 1. Load domain profile to build context-aware system prompt
+    from backend.app.services import persistence
+    domain_profile = persistence.get_domain_profile(user_id)
+    system_prompt = _build_system_prompt(domain_profile)
+
+    # 2. Embed and retrieve relevant narratives
+    retrieval_error: str | None = None
+    matches = []
     try:
         query_vec = embed_query(last_user)
-        matches = query_similar_references(
+        matches = query_all_narratives(
             user_id=user_id,
             query_embedding=query_vec,
             limit=top_k,
         )
-    except Exception:
-        matches = []
+        logger.info("chat retrieval: user=%s question=%r matches=%d", user_id, last_user[:80], len(matches))
+    except Exception as exc:
+        retrieval_error = str(exc)
+        logger.error("chat retrieval failed for user %s: %s", user_id, exc)
 
-    # 2. Build the context block from retrieved chunks
-    context_block = _build_context(matches) if matches else "(No reference narratives found in your library.)"
+    if retrieval_error:
+        if "different vector dimensions" in retrieval_error or "expected" in retrieval_error and "dimensions" in retrieval_error:
+            raise RuntimeError(
+                "Vector dimension mismatch: the embedding model has changed since the reference library was "
+                "indexed. Set VECTOR_STORE_RESET_ON_MISMATCH=true and restart the backend, then re-ingest "
+                "your reference files to rebuild the index."
+            )
+        raise RuntimeError(f"Failed to search reference library: {retrieval_error}")
 
-    # 3. Build the full message list for the LLM
+    # 3. Build context block
+    context_block = _build_context(matches) if matches else "(No reference narratives have been uploaded to your library yet.)"
+
     system_with_context = (
-        _SYSTEM_PROMPT
+        system_prompt
         + f"\n\nREFERENCE NARRATIVES RETRIEVED FOR THIS QUESTION:\n\n{context_block}"
     )
 
+    # 4. Build message list and generate
     llm_messages: list[dict] = [{"role": "system", "content": system_with_context}]
     for m in messages:
         llm_messages.append({"role": m["role"], "content": m["content"]})
 
-    # 4. Generate response
     reply = generate_text(
         provider=provider,
         messages=llm_messages,

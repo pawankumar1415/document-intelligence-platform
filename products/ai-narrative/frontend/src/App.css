@@ -224,9 +224,9 @@ textarea.form-control { resize: vertical; min-height: 120px; }
 .metric-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
 
 /* ── Model control bar ── */
-.model-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.model-bar-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-.model-bar select { padding: 5px 8px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.82rem; background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
+.model-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.model-bar-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.model-bar select { padding: 5px 8px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.82rem; background: var(--bg-primary); color: var(--text-primary); cursor: pointer; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; flex: 1; }
 
 /* ── Settings ── */
 .settings-section { margin-bottom: 28px; }

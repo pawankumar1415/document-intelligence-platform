@@ -1105,8 +1105,9 @@
             included in the reference embedding for richer similarity matching.
           </p>
           <p>
-            NDA MPPR multi-row format is supported as a special case — it detects the
-            <code>MPPR</code> or <code>NDA</code> sheet name and applies grouped row parsing.
+            Multi-row project report format is supported — detected automatically by data
+            structure (rows where the first column is empty, the second is a project name,
+            and the fourth contains a RAG status value).
           </p>
         </div>
         <table class="format-table">
@@ -1129,8 +1130,8 @@
               <td class="check">✓</td>
             </tr>
             <tr>
-              <td>NDA MPPR multi-row</td>
-              <td>Sheet name contains MPPR/NDA</td>
+              <td>Multi-row project report</td>
+              <td>Structural data pattern</td>
               <td class="check">✓</td>
             </tr>
             <tr>

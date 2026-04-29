@@ -122,7 +122,7 @@ export default function ReferenceLibraryView() {
           <label className="form-label">Description (optional)</label>
           <input
             className="form-control"
-            placeholder="e.g. NDA P07 reference narratives"
+            placeholder="e.g. Q3 2024 approved reference narratives"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             style={{ marginBottom: 14 }}

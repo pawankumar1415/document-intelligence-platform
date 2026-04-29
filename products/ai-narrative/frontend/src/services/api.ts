@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   ChatResponse,
   ColumnDetectionResponse,
+  DomainProfile,
   EmbeddingCatalog,
   ExtractedRowsResponse,
   ExtractedTextResponse,
@@ -283,8 +284,18 @@ export const getSharePointFiles = (
     { token: token ?? undefined }
   );
 
+// ── Domain Profile ────────────────────────────────────────────────────────────
+export const getDomainProfile = ({ token }: { token: string }) =>
+  request<DomainProfile>("/domain/profile", { token });
+
+export const deleteDomainProfile = ({ token }: { token: string }) =>
+  request<{ status: string }>("/domain/profile", { method: "DELETE", token });
+
 // ── Column Detection ──────────────────────────────────────────────────────────
 // ── Chat ─────────────────────────────────────────────────────────────────────
+export const getReferencePeriods = ({ token }: { token: string }) =>
+  request<{ periods: string[] }>("/references/periods", { token });
+
 export const sendChatMessage = (
   body: {
     messages: ChatMessage[];

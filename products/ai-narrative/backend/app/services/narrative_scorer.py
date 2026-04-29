@@ -21,9 +21,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from backend.app.config import default_llm_provider
 from backend.app.services import persistence
 from backend.app.services.llm_provider import LLMProvider, generate_json_object, generate_text
-from backend.app.services.vector_store import query_similar_references, vector_store_status
+from backend.app.services.vector_store import query_similar_references, upsert_scored_narrative, vector_store_status
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,7 @@ def run_score(
     document_name: str,
     user_id: int,
     rubric_id: int | None = None,
-    provider: LLMProvider = "openai",
+    provider: LLMProvider | None = None,
     model: str | None = None,
     top_k_references: int = 5,
 ) -> dict[str, Any]:
@@ -178,6 +179,7 @@ def run_score(
 
     Returns a dict matching the NarrativeScoreResult schema.
     """
+    provider = provider or default_llm_provider()  # type: ignore[assignment]
     # ── 1. Resolve rubric ─────────────────────────────────────────────────────
     if rubric_id is None:
         rubric_id = persistence.ensure_default_rubric(user_id)
@@ -310,10 +312,11 @@ def run_score(
             "rubric_name": rubric_name,
             "references_used": len(references),
             "provider": provider,
+            "narrative_text": narrative,
         },
     }
 
-    # ── 7. Persist ────────────────────────────────────────────────────────────
+    # ── 7. Persist to SQLite ──────────────────────────────────────────────────
     try:
         persistence.save_score_result(
             user_id=user_id,
@@ -325,5 +328,20 @@ def run_score(
         )
     except Exception:
         logger.warning("Failed to persist score result for '%s'", document_name, exc_info=True)
+
+    # ── 8. Index into pgvector for chat searchability ────────────────────────
+    if vector_store_status()["configured"]:
+        try:
+            from backend.app.services.embedding_service import embed_query
+            embedding = embed_query(narrative[:2000])
+            upsert_scored_narrative(
+                user_id=user_id,
+                unique_id=unique_id,
+                narrative_text=narrative,
+                embedding=embedding,
+            )
+            logger.info("Indexed scored narrative '%s' into pgvector for user %s", unique_id, user_id)
+        except Exception as exc:
+            logger.warning("Failed to index scored narrative '%s' into pgvector: %s", unique_id, exc)
 
     return result

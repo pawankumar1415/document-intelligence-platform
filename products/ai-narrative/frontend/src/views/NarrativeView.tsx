@@ -118,34 +118,36 @@ export default function NarrativeView() {
     setExcelRows(null);
     setSelectedRowId("");
 
-    if (["xlsx", "xls", "csv"].includes(ext)) {
+    setDocName(file.name.replace(/\.[^.]+$/, ""));
+
+    // For structured formats (Excel/CSV/DOCX/PDF), try row extraction first
+    if (["xlsx", "xls", "csv", "docx", "pdf"].includes(ext)) {
       setExtracting(true);
       try {
         const res = await extractRowsFromFile(file, { token });
-        if (res.rows.length === 0) {
-          setError("No valid rows found in the file. Ensure it has an ID column and a narrative/text column.");
+        if (res.rows.length > 0) {
+          setExcelRows(res.rows);
+          const first = res.rows[0];
+          setSelectedRowId(first.id);
+          setUniqueId(first.id);
+          setNarrative(first.narrative);
+          setOriginalNarrative(first.narrative);
+          setExtracting(false);
           return;
         }
-        setExcelRows(res.rows);
-        const first = res.rows[0];
-        setSelectedRowId(first.id);
-        setUniqueId(first.id);
-        setDocName(file.name.replace(/\.[^.]+$/, ""));
-        setNarrative(first.narrative);
-        setOriginalNarrative(first.narrative);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to parse file.");
+      } catch {
+        // Row extraction failed — fall through to plain text extraction
       } finally {
         setExtracting(false);
       }
-      return;
     }
 
-    setDocName(file.name.replace(/\.[^.]+$/, ""));
+    // Plain text extraction (txt, or docx/pdf without a table)
     setExtracting(true);
     try {
       const res = await extractTextFromFile(file, { token });
       setNarrative(res.text);
+      setOriginalNarrative(res.text);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to extract text.");
     } finally {
@@ -171,30 +173,31 @@ export default function NarrativeView() {
     setExcelRows(null);
     setSelectedRowId("");
     try {
-      if (["xlsx", "xls", "csv"].includes(ext)) {
-        const res = await extractRowsFromSharePoint(
-          { library_id: libraryId, item_id: file.id, filename: file.name },
-          { token }
-        );
-        if (res.rows.length === 0) {
-          setError("No valid rows found. Ensure the file has an ID column and a narrative/text column.");
-          return;
+      if (["xlsx", "xls", "csv", "docx", "pdf"].includes(ext)) {
+        try {
+          const res = await extractRowsFromSharePoint(
+            { library_id: libraryId, item_id: file.id, filename: file.name },
+            { token }
+          );
+          if (res.rows.length > 0) {
+            setExcelRows(res.rows);
+            const first = res.rows[0];
+            setSelectedRowId(first.id);
+            setUniqueId(first.id);
+            setNarrative(first.narrative);
+            setOriginalNarrative(first.narrative);
+            return;
+          }
+        } catch {
+          // fall through to plain text extraction
         }
-        setExcelRows(res.rows);
-        const first = res.rows[0];
-        setSelectedRowId(first.id);
-        setUniqueId(first.id);
-        setNarrative(first.narrative);
-        setOriginalNarrative(first.narrative);
-      } else {
-        const res = await extractTextFromSharePoint(
-          { library_id: libraryId, item_id: file.id, filename: file.name },
-          { token }
-        );
-        setNarrative(res.text);
-        setOriginalNarrative(res.text);
-        setInputTab("paste");
       }
+      const res = await extractTextFromSharePoint(
+        { library_id: libraryId, item_id: file.id, filename: file.name },
+        { token }
+      );
+      setNarrative(res.text);
+      setOriginalNarrative(res.text);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to extract file from SharePoint.");
     } finally {
@@ -368,8 +371,18 @@ export default function NarrativeView() {
                 )}
 
                 {narrative && localFile && !excelRows && (
-                  <div className="message success" style={{ fontSize: "0.8rem" }}>
-                    <CheckCircle2 size={13} /> {narrative.length.toLocaleString()} characters extracted — switch to "Paste Text" to review or edit.
+                  <div style={{ marginTop: 8 }}>
+                    <label className="form-label">Extracted Text</label>
+                    <textarea
+                      className="form-control"
+                      rows={8}
+                      value={narrative}
+                      onChange={(e) => { setNarrative(e.target.value); setOriginalNarrative(e.target.value); }}
+                      style={{ fontSize: "0.84rem" }}
+                    />
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 4 }}>
+                      {narrative.length.toLocaleString()} characters extracted · edit above if needed
+                    </div>
                   </div>
                 )}
               </div>
@@ -420,8 +433,18 @@ export default function NarrativeView() {
                 )}
 
                 {narrative && !extracting && !excelRows && (
-                  <div className="message success" style={{ fontSize: "0.8rem", marginTop: 8 }}>
-                    <CheckCircle2 size={13} /> {narrative.length.toLocaleString()} characters extracted — switch to "Paste Text" to review or edit.
+                  <div style={{ marginTop: 8 }}>
+                    <label className="form-label">Extracted Text</label>
+                    <textarea
+                      className="form-control"
+                      rows={8}
+                      value={narrative}
+                      onChange={(e) => { setNarrative(e.target.value); setOriginalNarrative(e.target.value); }}
+                      style={{ fontSize: "0.84rem" }}
+                    />
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 4 }}>
+                      {narrative.length.toLocaleString()} characters extracted · edit above if needed
+                    </div>
                   </div>
                 )}
               </div>

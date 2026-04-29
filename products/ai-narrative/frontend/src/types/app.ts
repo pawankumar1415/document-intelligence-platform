@@ -230,6 +230,18 @@ export interface ExtractedRowsResponse {
   rows: ExcelRowRecord[];
 }
 
+// ── Domain Profile ────────────────────────────────────────────────────────────
+export interface DomainProfile {
+  domain_name: string | null;
+  period_label: string;
+  period_format: string | null;
+  status_codes: Record<string, string>;
+  key_terms: Record<string, string>;
+  suggested_questions: string[];
+  confidence: number;
+  updated_at: string | null;
+}
+
 // ── Chat ─────────────────────────────────────────────────────────────────────
 export interface ChatMessage {
   role: "user" | "assistant";

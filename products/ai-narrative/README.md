@@ -350,7 +350,7 @@ top_k_references: 5   (optional)
 **Ingest — multipart form:**
 ```
 file: <Excel or CSV>
-description: "NDA P07 reference narratives"  (optional)
+description: "Q3 2024 approved reference narratives"  (optional)
 ```
 
 **Response:**
@@ -408,7 +408,7 @@ no fixed column order or naming is required.
 - Headers are matched case-insensitively
 - Rows with an empty ID are silently skipped
 - All extra columns are preserved and included in the embedding content
-- NDA MPPR multi-row format is detected by sheet name containing `MPPR` or `NDA`
+- Multi-row project report format is detected automatically by data structure (rows where col0 is empty, col1 is a project name, col3 is a RAG value)
 
 **Example valid headers:**
 ```
@@ -474,6 +474,24 @@ These are embedded and stored in PostgreSQL + pgvector.
 **Changing the embedding model** (Settings → Embedding Model) requires re-ingesting all
 reference files — the old embeddings at a different dimension are incompatible.
 
+### Automatic Domain Detection
+
+When you upload a reference file, the system automatically analyses a sample of up to 10
+narratives and detects your organisation's reporting domain and conventions:
+
+- **Domain name** — identified from vocabulary and structure (e.g. "Nuclear Decommissioning Authority", "Government Digital Service")
+- **Reporting period format** — e.g. `P-XX`, `Q1–Q4`, `Phase 1–5`
+- **Status codes** — RAG labels and what they mean in your context
+- **Key terminology** — abbreviations and acronyms specific to your domain
+- **Suggested chat questions** — 5–8 questions tailored to your data that appear in the Knowledge Base Chat sidebar
+
+The detected profile is stored per-user and used to build a domain-aware system prompt when
+you chat, so the AI understands your terminology without any manual configuration.
+
+**API endpoints:**
+- `GET /api/v1/domain/profile` — retrieve the current detected profile
+- `DELETE /api/v1/domain/profile` — clear and re-detect on next upload
+
 ---
 
 ## LLM Providers
@@ -503,6 +521,8 @@ products/ai-narrative/
 │   │   └── services/
 │   │       ├── auth_service.py
 │   │       ├── batch_service.py
+│   │       ├── chat_service.py           # RAG chat over reference library
+│   │       ├── domain_detector.py        # Automatic domain detection on ingest
 │   │       ├── embedding_service.py
 │   │       ├── excel_parser.py
 │   │       ├── llm_provider.py

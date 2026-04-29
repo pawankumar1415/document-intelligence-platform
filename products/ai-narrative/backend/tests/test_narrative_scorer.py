@@ -166,3 +166,176 @@ class TestRunScore:
         results = persistence.list_score_results(user["id"])
         assert len(results) == 1
         assert results[0]["overall_verdict"] == "PASS_WITH_WARNINGS"
+
+    @patch("backend.app.services.narrative_scorer.generate_json_object")
+    @patch("backend.app.services.narrative_scorer.generate_text")
+    @patch("backend.app.services.narrative_scorer.vector_store_status")
+    def test_run_score_boundary_exactly_8_is_pass(
+        self,
+        mock_vs_status: MagicMock,
+        mock_gen_text: MagicMock,
+        mock_gen_json: MagicMock,
+    ) -> None:
+        mock_vs_status.return_value = {"configured": False}
+        mock_gen_json.side_effect = [
+            {"compliance_score": 8.0, "issues": [], "passed": ["Clarity"]},
+            {"abnormalities": [], "reference_quality_score": 0.0, "patterns_followed": []},
+        ]
+        mock_gen_text.return_value = ""
+        user = persistence.create_user(email="boundary8@test.com", password_hash="h", password_salt="s")
+
+        from backend.app.services.narrative_scorer import run_score
+
+        result = run_score(narrative="Good.", unique_id="B8", document_name="B8", user_id=user["id"])
+        assert result["overall_verdict"] == "PASS"
+
+    @patch("backend.app.services.narrative_scorer.generate_json_object")
+    @patch("backend.app.services.narrative_scorer.generate_text")
+    @patch("backend.app.services.narrative_scorer.vector_store_status")
+    def test_run_score_boundary_exactly_6_is_warn(
+        self,
+        mock_vs_status: MagicMock,
+        mock_gen_text: MagicMock,
+        mock_gen_json: MagicMock,
+    ) -> None:
+        mock_vs_status.return_value = {"configured": False}
+        mock_gen_json.side_effect = [
+            {"compliance_score": 6.0, "issues": ["Minor issue"], "passed": []},
+            {"abnormalities": [], "reference_quality_score": 0.0, "patterns_followed": []},
+        ]
+        mock_gen_text.return_value = "Rewrite."
+        user = persistence.create_user(email="boundary6@test.com", password_hash="h", password_salt="s")
+
+        from backend.app.services.narrative_scorer import run_score
+
+        result = run_score(narrative="Ok.", unique_id="B6", document_name="B6", user_id=user["id"])
+        assert result["overall_verdict"] == "PASS_WITH_WARNINGS"
+
+    @patch("backend.app.services.narrative_scorer.generate_json_object")
+    @patch("backend.app.services.narrative_scorer.generate_text")
+    @patch("backend.app.services.narrative_scorer.vector_store_status")
+    def test_run_score_abnormalities_trigger_rewrite(
+        self,
+        mock_vs_status: MagicMock,
+        mock_gen_text: MagicMock,
+        mock_gen_json: MagicMock,
+    ) -> None:
+        mock_vs_status.return_value = {"configured": False}
+        mock_gen_json.side_effect = [
+            {"compliance_score": 8.5, "issues": [], "passed": ["Clarity"]},
+            {
+                "abnormalities": [
+                    {"type": "missing_information", "description": "Missing cost data.", "severity": "high", "evidence": ""},
+                ],
+                "reference_quality_score": 7.0,
+                "patterns_followed": [],
+            },
+        ]
+        mock_gen_text.return_value = "Rewritten with cost data included."
+        user = persistence.create_user(email="abnorm@test.com", password_hash="h", password_salt="s")
+
+        from backend.app.services.narrative_scorer import run_score
+
+        result = run_score(narrative="Narrative missing cost data.", unique_id="ABN-001", document_name="ABN", user_id=user["id"])
+        assert len(result["layer2"]["abnormalities"]) == 1
+        assert result["rewritten_narrative"] == "Rewritten with cost data included."
+        mock_gen_text.assert_called_once()
+
+    @patch("backend.app.services.narrative_scorer.generate_json_object")
+    @patch("backend.app.services.narrative_scorer.generate_text")
+    @patch("backend.app.services.narrative_scorer.vector_store_status")
+    def test_run_score_layer2_failure_is_non_fatal(
+        self,
+        mock_vs_status: MagicMock,
+        mock_gen_text: MagicMock,
+        mock_gen_json: MagicMock,
+    ) -> None:
+        mock_vs_status.return_value = {"configured": False}
+        mock_gen_json.side_effect = [
+            {"compliance_score": 9.0, "issues": [], "passed": ["Clarity"]},
+            RuntimeError("Layer 2 LLM error"),
+        ]
+        mock_gen_text.return_value = ""
+        user = persistence.create_user(email="layer2fail@test.com", password_hash="h", password_salt="s")
+
+        from backend.app.services.narrative_scorer import run_score
+
+        result = run_score(narrative="Good narrative.", unique_id="L2F-001", document_name="L2F", user_id=user["id"])
+        # Should still produce a valid result despite layer 2 failure
+        assert result["overall_verdict"] == "PASS"
+        assert result["layer2"]["abnormalities"] == []
+
+    @patch("backend.app.services.narrative_scorer.upsert_scored_narrative")
+    @patch("backend.app.services.embedding_service.embed_query")
+    @patch("backend.app.services.narrative_scorer.generate_json_object")
+    @patch("backend.app.services.narrative_scorer.generate_text")
+    @patch("backend.app.services.narrative_scorer.vector_store_status")
+    def test_run_score_indexes_narrative_when_vs_configured(
+        self,
+        mock_vs_status: MagicMock,
+        mock_gen_text: MagicMock,
+        mock_gen_json: MagicMock,
+        mock_embed: MagicMock,
+        mock_upsert: MagicMock,
+    ) -> None:
+        mock_vs_status.return_value = {"configured": True}
+        mock_gen_json.side_effect = [
+            {"compliance_score": 9.0, "issues": [], "passed": []},
+            {"abnormalities": [], "reference_quality_score": 0.0, "patterns_followed": []},
+        ]
+        mock_gen_text.return_value = ""
+        mock_embed.return_value = [0.1] * 768
+        user = persistence.create_user(email="index@test.com", password_hash="h", password_salt="s")
+
+        from backend.app.services.narrative_scorer import run_score
+
+        run_score(narrative="Indexed narrative.", unique_id="IDX-001", document_name="IDX", user_id=user["id"])
+
+        mock_upsert.assert_called_once()
+        call_kwargs = mock_upsert.call_args[1]
+        assert call_kwargs["unique_id"] == "IDX-001"
+        assert call_kwargs["user_id"] == user["id"]
+
+    @patch("backend.app.services.narrative_scorer.generate_json_object")
+    @patch("backend.app.services.narrative_scorer.generate_text")
+    @patch("backend.app.services.narrative_scorer.vector_store_status")
+    def test_run_score_clamps_score_above_10(
+        self,
+        mock_vs_status: MagicMock,
+        mock_gen_text: MagicMock,
+        mock_gen_json: MagicMock,
+    ) -> None:
+        mock_vs_status.return_value = {"configured": False}
+        mock_gen_json.side_effect = [
+            {"compliance_score": 15.0, "issues": [], "passed": []},
+            {"abnormalities": [], "reference_quality_score": 0.0, "patterns_followed": []},
+        ]
+        mock_gen_text.return_value = ""
+        user = persistence.create_user(email="clamp10@test.com", password_hash="h", password_salt="s")
+
+        from backend.app.services.narrative_scorer import run_score
+
+        result = run_score(narrative="Great.", unique_id="C10", document_name="C10", user_id=user["id"])
+        assert result["layer1"]["compliance_score"] <= 10.0
+
+    @patch("backend.app.services.narrative_scorer.generate_json_object")
+    @patch("backend.app.services.narrative_scorer.generate_text")
+    @patch("backend.app.services.narrative_scorer.vector_store_status")
+    def test_run_score_clamps_score_below_0(
+        self,
+        mock_vs_status: MagicMock,
+        mock_gen_text: MagicMock,
+        mock_gen_json: MagicMock,
+    ) -> None:
+        mock_vs_status.return_value = {"configured": False}
+        mock_gen_json.side_effect = [
+            {"compliance_score": -5.0, "issues": ["Very bad"], "passed": []},
+            {"abnormalities": [], "reference_quality_score": 0.0, "patterns_followed": []},
+        ]
+        mock_gen_text.return_value = "Rewrite."
+        user = persistence.create_user(email="clamp0@test.com", password_hash="h", password_salt="s")
+
+        from backend.app.services.narrative_scorer import run_score
+
+        result = run_score(narrative="Terrible.", unique_id="C0", document_name="C0", user_id=user["id"])
+        assert result["layer1"]["compliance_score"] >= 0.0

@@ -280,6 +280,19 @@ class ExtractedRowsResponse(BaseModel):
     rows: list[ExcelRowRecord]
 
 
+# ── Domain Profile ───────────────────────────────────────────────────────────
+
+class DomainProfile(BaseModel):
+    domain_name: Optional[str] = None
+    period_label: str = "Period"
+    period_format: Optional[str] = None
+    status_codes: dict = Field(default_factory=dict)
+    key_terms: dict = Field(default_factory=dict)
+    suggested_questions: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    updated_at: Optional[str] = None
+
+
 # ── Chat ─────────────────────────────────────────────────────────────────────
 
 class ChatMessage(BaseModel):

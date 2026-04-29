@@ -3,9 +3,9 @@ excel_parser.py — Flexible Excel/CSV parser for narrative scoring.
 
 Detects three formats automatically:
 
-FORMAT A — NDA MPPR multi-row (legacy compatibility)
-  Sheet name contains 'MPPR' or 'NDA'
-  Each project spans 2-3 rows; narrative in col1 of the narrative row
+FORMAT A — Multi-row project report (e.g. one project per block, narrative on a sub-row)
+  Detected structurally: rows where col0 is empty, col1 is a project name, col3 is a RAG value.
+  Each project spans 2-3 rows; narrative text is on the first sub-row.
 
 FORMAT B — Generic tabular with headers
   First row is a header row.
@@ -61,7 +61,21 @@ def _extract_period_from_sheet(df: Any) -> str:
     return ""
 
 
-# ── Format A: NDA MPPR ────────────────────────────────────────────────────────
+# ── Format A: Multi-row project report ───────────────────────────────────────
+
+def _looks_like_multirow_format(df: Any) -> bool:
+    """Detect multi-row project report format by data structure rather than sheet name."""
+    matches = 0
+    for i in range(min(6, len(df)), min(60, len(df))):
+        row = df.iloc[i]
+        col0 = _safe(row.iloc[0]) if len(row) > 0 else ""
+        col1 = _safe(row.iloc[1]) if len(row) > 1 else ""
+        col3 = _safe(row.iloc[3]) if len(row) > 3 else ""
+        if col0 == "" and col1 != "" and len(col1) >= 3 and col3.lower() in _RAG_VALUES:
+            matches += 1
+            if matches >= 2:
+                return True
+    return False
 
 def _parse_mppr_sheet(df: Any, period: str) -> list[dict]:
     records = []
@@ -95,17 +109,16 @@ def _parse_mppr_sheet(df: Any, period: str) -> list[dict]:
     return records
 
 
-def _parse_format_a(raw_bytes: bytes, filename: str = "") -> tuple[list[dict], str]:
+def _parse_format_a(raw_bytes: bytes, filename: str = "", sheet_name: str = "") -> tuple[list[dict], str]:
     import pandas as pd
 
     xl = pd.ExcelFile(io.BytesIO(raw_bytes))
-    mppr_sheets = [s for s in xl.sheet_names if "MPPR" in s.upper() or "NDA" in s.upper()]
-    sheet_name = next((s for s in mppr_sheets if "NDA" in s.upper()), mppr_sheets[0])
-    df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
+    target = sheet_name if sheet_name and sheet_name in xl.sheet_names else xl.sheet_names[0]
+    df = pd.read_excel(xl, sheet_name=target, header=None)
 
     period = _extract_period_from_filename(filename) or _extract_period_from_sheet(df) or "UNKNOWN"
     records = _parse_mppr_sheet(df, period)
-    logger.info("MPPR: parsed %d records (period %s) from '%s'", len(records), period, sheet_name)
+    logger.info("Multi-row format: parsed %d records (period %s) from '%s'", len(records), period, target)
     return records, period
 
 
@@ -302,7 +315,7 @@ def parse_excel_for_scoring(
       { unique_id: str, narrative_text: str, extra_fields: dict }
 
     Detection priority:
-      1. Sheet name contains 'MPPR' or 'NDA' → Format A (NDA multi-row)
+      1. Structural check: any sheet matches multi-row project report pattern → Format A
       2. Otherwise → Format B (generic header-based)
     """
     try:
@@ -316,14 +329,19 @@ def parse_excel_for_scoring(
     except Exception as exc:
         raise ValueError(f"Could not open Excel file: {exc}") from exc
 
-    is_mppr = any("MPPR" in s.upper() or "NDA" in s.upper() for s in sheet_names)
-
-    if is_mppr and not id_column and not narrative_column:
-        try:
-            records, _ = _parse_format_a(raw_bytes, filename=filename)
-            return records
-        except Exception as exc:
-            logger.warning("MPPR parser failed (%s), falling back to generic parser", exc)
+    # Structural detection — no keyword matching on sheet names
+    if not id_column and not narrative_column:
+        for sheet in sheet_names:
+            try:
+                df_probe = xl.parse(sheet, header=None)
+                if _looks_like_multirow_format(df_probe):
+                    try:
+                        records, _ = _parse_format_a(raw_bytes, filename=filename, sheet_name=sheet)
+                        return records
+                    except Exception as exc:
+                        logger.warning("Multi-row parser failed for sheet '%s' (%s), trying generic", sheet, exc)
+            except Exception:
+                continue
 
     return _parse_format_b(raw_bytes, id_column=id_column, narrative_column=narrative_column)
 

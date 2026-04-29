@@ -93,8 +93,16 @@ def init_db() -> None:
                 raw_json         TEXT    NOT NULL DEFAULT '{}',
                 created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS domain_profiles (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+                profile_json TEXT    NOT NULL DEFAULT '{}',
+                confidence   REAL    NOT NULL DEFAULT 0.0,
+                updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
         """)
-        # Migration: add onboarding_completed if upgrading from older schema
+        # Migrations for older schemas
         try:
             conn.execute(
                 "ALTER TABLE users ADD COLUMN onboarding_completed INTEGER NOT NULL DEFAULT 0"
@@ -368,6 +376,42 @@ def get_score_result(result_id: int, user_id: int) -> dict[str, Any] | None:
     d = dict(row)
     d["result"] = json.loads(d.get("raw_json") or "{}")
     return d
+
+
+# ── Domain Profiles ───────────────────────────────────────────────────────────
+
+def save_domain_profile(user_id: int, profile: dict, confidence: float) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO domain_profiles (user_id, profile_json, confidence, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE
+            SET profile_json = excluded.profile_json,
+                confidence   = excluded.confidence,
+                updated_at   = datetime('now')
+            """,
+            (user_id, json.dumps(profile), confidence),
+        )
+
+
+def get_domain_profile(user_id: int) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT profile_json, confidence, updated_at FROM domain_profiles WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return None
+    profile = json.loads(row["profile_json"] or "{}")
+    profile["confidence"] = row["confidence"]
+    profile["updated_at"] = row["updated_at"]
+    return profile
+
+
+def delete_domain_profile(user_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM domain_profiles WHERE user_id = ?", (user_id,))
 
 
 def complete_onboarding(user_id: int) -> None:

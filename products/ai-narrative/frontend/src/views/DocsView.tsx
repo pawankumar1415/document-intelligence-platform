@@ -120,7 +120,7 @@ const sections: Section[] = [
             <p>
               This is a code that identifies the piece of work the narrative belongs to — for
               example, a project number, a reference code, or a case ID. Examples:
-              <code>PROJ-001</code>, <code>P07|Security Systems</code>, <code>NDA-2024-003</code>.
+              <code>PROJ-001</code>, <code>P07|Security Systems</code>, <code>REF-2024-003</code>.
             </p>
           </div>
         </div>
@@ -303,7 +303,7 @@ const sections: Section[] = [
             <strong>Upload the file</strong>
             <p>
               Go to <strong>Reference Library</strong> in the sidebar. Click the upload area on
-              the left, select your file, add an optional description (e.g. "NDA P07 approved
+              the left, select your file, add an optional description (e.g. "Q3 2024 approved
               narratives"), and click <strong>Index Reference File</strong>.
             </p>
             <p>

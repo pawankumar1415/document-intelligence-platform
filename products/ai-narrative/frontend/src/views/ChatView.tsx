@@ -12,21 +12,15 @@ import {
 import { useEffect, useRef, useState } from "react";
 import ModelControlBar from "../components/ModelControlBar";
 import { useAppState } from "../context/AppStateContext";
-import { sendChatMessage } from "../services/api";
-import type { ChatMessage, ChatSource, LLMProvider } from "../types/app";
+import { getDomainProfile, getReferencePeriods, sendChatMessage } from "../services/api";
+import type { ChatMessage, ChatSource, DomainProfile, LLMProvider } from "../types/app";
 
-const PERIOD_OPTIONS = [
-  "Any period",
-  "P-01", "P-02", "P-03", "P-04", "P-05", "P-06",
-  "P-07", "P-08", "P-09", "P-10", "P-11", "P-12",
-];
-
-const SUGGESTED_QUESTIONS = [
-  "Which projects have a Red RAG status this period?",
-  "Summarise the cost position across all projects.",
-  "Which projects are at risk of missing their schedule milestones?",
+const DEFAULT_SUGGESTED_QUESTIONS = [
+  "Which projects have issues this period?",
+  "Summarise the overall status across all projects.",
+  "Which projects are at risk of missing their milestones?",
   "What are the key risks mentioned across narratives?",
-  "Compare the EAC P50 vs P80 across projects.",
+  "Highlight any projects that have changed status recently.",
 ];
 
 interface UIMessage extends ChatMessage {
@@ -84,6 +78,9 @@ export default function ChatView() {
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
   const [period, setPeriod] = useState("Any period");
+  const [periodOptions, setPeriodOptions] = useState<string[]>(["Any period"]);
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>(DEFAULT_SUGGESTED_QUESTIONS);
+  const [domainProfile, setDomainProfile] = useState<DomainProfile | null>(null);
   const [provider, setLocalProvider] = useState<LLMProvider>(llmProvider);
   const [model, setModel] = useState<string | null>(llmModel);
   const [loading, setLoading] = useState(false);
@@ -92,6 +89,21 @@ export default function ChatView() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    Promise.all([
+      getReferencePeriods({ token }),
+      getDomainProfile({ token }),
+    ]).then(([{ periods }, profile]) => {
+      if (periods.length > 0) setPeriodOptions(["Any period", ...periods]);
+      if (profile && profile.domain_name) {
+        setDomainProfile(profile);
+        if (profile.suggested_questions?.length > 0) {
+          setSuggestedQuestions(profile.suggested_questions);
+        }
+      }
+    }).catch(() => {});
+  }, [token]);
 
   useEffect(() => {
     setLocalProvider(llmProvider);
@@ -159,8 +171,8 @@ export default function ChatView() {
   };
 
   return (
-    <div className="page-container" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 48px)" }}>
-      <div className="page-header" style={{ flexShrink: 0 }}>
+    <div className="page-container" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", padding: "24px 28px", boxSizing: "border-box" }}>
+      <div className="page-header" style={{ flexShrink: 0, marginBottom: 16 }}>
         <h1 className="page-title">
           <MessageSquare size={20} color="var(--bsbi-red)" /> Knowledge Base Chat
         </h1>
@@ -169,10 +181,10 @@ export default function ChatView() {
         </p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 20, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "250px 1fr", gap: 16, flex: 1, minHeight: 0, overflow: "hidden" }}>
 
-        {/* LEFT: Controls */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14, alignSelf: "start" }}>
+        {/* LEFT: Controls — scrollable independently */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", paddingRight: 4 }}>
           <div className="card">
             <h3 className="card-title">Settings</h3>
 
@@ -183,7 +195,7 @@ export default function ChatView() {
               onChange={(e) => setPeriod(e.target.value)}
               style={{ marginBottom: 12 }}
             >
-              {PERIOD_OPTIONS.map((p) => (
+              {periodOptions.map((p) => (
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
@@ -200,12 +212,27 @@ export default function ChatView() {
             />
 
             <ModelControlBar provider={provider} model={model} onChange={handleProviderChange} />
+
+            {provider === "ollama" && model && /0\.[0-9]b/i.test(model) && (
+              <div style={{
+                marginTop: 10, padding: "8px 10px", borderRadius: 6,
+                background: "#fff8e1", border: "1px solid #f59e0b",
+                fontSize: "0.72rem", color: "#92400e", lineHeight: 1.5,
+              }}>
+                ⚠ Small models (&lt;1B) often ignore document context. Switch to <strong>Groq → llama-3.3-70b-versatile</strong> for reliable answers.
+              </div>
+            )}
           </div>
 
           <div className="card">
             <h3 className="card-title">Suggested questions</h3>
+            {domainProfile?.domain_name && (
+              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: 8, fontStyle: "italic" }}>
+                Tailored for: {domainProfile.domain_name}
+              </div>
+            )}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {SUGGESTED_QUESTIONS.map((q) => (
+              {suggestedQuestions.map((q) => (
                 <button
                   key={q}
                   type="button"
@@ -233,7 +260,7 @@ export default function ChatView() {
         </div>
 
         {/* RIGHT: Chat window */}
-        <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%", overflow: "hidden" }}>
 
           {/* Message list */}
           <div
@@ -250,6 +277,19 @@ export default function ChatView() {
                   Questions are answered using your uploaded reference narratives.<br />
                   Select a period filter or pick a suggested question to start.
                 </p>
+                {periodOptions.length <= 1 && (
+                  <div style={{
+                    marginTop: 16, padding: "10px 16px", borderRadius: 8,
+                    background: "var(--bg-tertiary)", border: "1px solid var(--border-color)",
+                    fontSize: "0.8rem", color: "var(--text-muted)", maxWidth: 420,
+                  }}>
+                    No reference narratives detected in your library yet.{" "}
+                    <a href="/references" style={{ color: "var(--bsbi-red)", fontWeight: 600 }}>
+                      Upload files to Reference Library
+                    </a>{" "}
+                    first so the AI has content to answer from.
+                  </div>
+                )}
               </div>
             )}
 

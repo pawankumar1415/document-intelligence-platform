@@ -18,6 +18,7 @@ from backend.app.models.schemas import (
     ChatRequest,
     ChatResponse,
     ColumnDetectionResponse,
+    DomainProfile,
     EmbeddingCatalog,
     EmbeddingConfigRequest,
     ExtractedRowsResponse,
@@ -126,6 +127,48 @@ def list_references(authorization: Annotated[str | None, Header()] = None) -> An
     return list_reference_files(user["id"])
 
 
+@router.get("/references/periods")
+def get_reference_periods(authorization: Annotated[str | None, Header()] = None) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    from backend.app.services.vector_store import get_available_periods
+    try:
+        return {"periods": get_available_periods(user["id"])}
+    except Exception:
+        return {"periods": []}
+
+
+@router.get("/debug/vector-store")
+def debug_vector_store(authorization: Annotated[str | None, Header()] = None) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    from backend.app.services.vector_store import _connect
+    from backend.app.services.embedding_service import (
+        configured_embedding_backend, configured_embedding_model_id, embedding_configuration
+    )
+    result: dict[str, Any] = {
+        "user_id": user["id"],
+        "embedding_backend": configured_embedding_backend(),
+        "embedding_model_id": configured_embedding_model_id(),
+        "embedding_config": embedding_configuration(),
+    }
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM reference_narratives WHERE user_id = %s;", (user["id"],))
+                result["records_for_user"] = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM reference_narratives;")
+                result["total_records"] = cur.fetchone()[0]
+                cur.execute("SELECT DISTINCT user_id FROM reference_narratives;")
+                result["all_user_ids"] = [r[0] for r in cur.fetchall()]
+                cur.execute(
+                    "SELECT unique_id FROM reference_narratives WHERE user_id = %s LIMIT 5;",
+                    (user["id"],)
+                )
+                result["sample_unique_ids"] = [r[0] for r in cur.fetchall()]
+    except Exception as exc:
+        result["db_error"] = str(exc)
+    return result
+
+
 @router.post("/references/ingest", response_model=IngestReferenceResponse)
 async def ingest_reference(
     file: UploadFile = File(...),
@@ -173,6 +216,22 @@ def remove_reference(
     if not deleted:
         raise HTTPException(status_code=404, detail="Reference file not found.")
     return {"status": "deleted", "file_id": file_id}
+
+
+# ── Domain Profile ────────────────────────────────────────────────────────────
+
+@router.get("/domain/profile", response_model=DomainProfile)
+def get_domain_profile(authorization: Annotated[str | None, Header()] = None) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    profile = persistence.get_domain_profile(user["id"])
+    return profile or {}
+
+
+@router.delete("/domain/profile")
+def delete_domain_profile(authorization: Annotated[str | None, Header()] = None) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    persistence.delete_domain_profile(user["id"])
+    return {"status": "deleted"}
 
 
 # ── Single Narrative Scoring ──────────────────────────────────────────────────
@@ -359,6 +418,17 @@ def update_embedding(
         set_runtime_embedding_config(backend=body.backend, model_id=body.model_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+    # Re-initialise the vector store so a dimension mismatch is caught immediately.
+    # If VECTOR_STORE_RESET_ON_MISMATCH=true the tables are rebuilt automatically;
+    # otherwise an error is raised here rather than failing silently at ingest time.
+    from backend.app.services.vector_store import init_vector_store, vector_store_status
+    if vector_store_status()["configured"]:
+        try:
+            init_vector_store()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+
     return embedding_configuration()
 
 
@@ -675,14 +745,18 @@ def chat(
     from backend.app.services.chat_service import run_chat
     from backend.app.services.llm_provider import LLMProvider
 
-    provider: LLMProvider = body.provider if body.provider in ("openai", "groq", "azure_openai", "ollama") else "openai"  # type: ignore[assignment]
-    result = run_chat(
-        user_id=user.id,
-        messages=[{"role": m.role, "content": m.content} for m in body.messages],
-        provider=provider,
-        model=body.model,
-        top_k=body.top_k,
-    )
+    from backend.app.config import default_llm_provider
+    provider: LLMProvider = body.provider if body.provider in ("openai", "groq", "azure_openai", "ollama") else default_llm_provider()  # type: ignore[assignment]
+    try:
+        result = run_chat(
+            user_id=user["id"],
+            messages=[{"role": m.role, "content": m.content} for m in body.messages],
+            provider=provider,
+            model=body.model,
+            top_k=body.top_k,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return ChatResponse(
         reply=result["reply"],
         sources=[
@@ -811,10 +885,10 @@ async def detect_columns(
 
     if use_llm and (ambiguous or True):
         try:
+            from backend.app.config import default_llm_provider
             from backend.app.services.llm_provider import generate_json_object
-            from backend.app.services.embedding_service import embedding_configuration
 
-            provider = llm_provider or embedding_configuration().get("backend", "openai")
+            provider = llm_provider if llm_provider in ("openai", "groq", "azure_openai", "ollama") else default_llm_provider()
             sample_rows = df.head(3).fillna("").to_dict(orient="records")
             prompt = (
                 "You are analysing a spreadsheet to identify which column contains a unique record ID "
@@ -826,8 +900,8 @@ async def detect_columns(
                 "Only return column names that exist in the list above. Return null if unsure."
             )
             result = generate_json_object(
-                system="You identify spreadsheet columns by their content.",
-                user=prompt,
+                system_prompt="You identify spreadsheet columns by their content.",
+                user_prompt=prompt,
                 provider=provider,
                 model=llm_model,
             )
