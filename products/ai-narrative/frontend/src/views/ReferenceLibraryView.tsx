@@ -78,7 +78,7 @@ export default function ReferenceLibraryView() {
       <div className="page-header">
         <h1 className="page-title"><BookOpen size={20} color="var(--bsbi-red)" /> Reference Library</h1>
         <p className="page-subtitle">
-          Upload reference Excel/CSV files containing "gold standard" narratives.
+          Upload reference files (Excel, CSV, Word, or PDF) containing "gold standard" narratives.
           These are embedded and used for abnormality detection during scoring.
         </p>
       </div>
@@ -88,7 +88,7 @@ export default function ReferenceLibraryView() {
         <div className="card">
           <h3 className="card-title">Upload Reference File</h3>
           <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 14 }}>
-            Accepted formats: .xlsx, .xls, .csv<br />
+            Accepted formats: .xlsx, .xls, .csv, .docx, .pdf<br />
             Required columns: unique ID + narrative text
           </p>
 
@@ -100,7 +100,7 @@ export default function ReferenceLibraryView() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.xls,.csv,.docx,.pdf"
               style={{ display: "none" }}
               onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
             />
@@ -114,7 +114,7 @@ export default function ReferenceLibraryView() {
               <>
                 <UploadCloud size={24} />
                 <span>Click to select file</span>
-                <span className="dropzone-hint">.xlsx · .xls · .csv</span>
+                <span className="dropzone-hint">.xlsx · .xls · .csv · .docx · .pdf</span>
               </>
             )}
           </div>

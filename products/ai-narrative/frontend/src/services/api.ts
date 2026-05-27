@@ -7,9 +7,11 @@ import type {
   ChatResponse,
   ColumnDetectionResponse,
   DomainProfile,
+  DriftMetrics,
   EmbeddingCatalog,
   ExtractedRowsResponse,
   ExtractedTextResponse,
+  FinancialUploadResponse,
   IngestReferenceResponse,
   LLMProvider,
   NarrativeScoreResult,
@@ -17,8 +19,10 @@ import type {
   ReferenceFileRecord,
   RubricRecord,
   RubricSummary,
+  RulesUploadResponse,
   SharePointFilesResponse,
   SharePointLibrary,
+  StandardsStatus,
 } from "../types/app";
 
 const BASE = "/api/v1";
@@ -310,6 +314,64 @@ export const sendChatMessage = (
     token,
     body: JSON.stringify(body),
   });
+
+// ── Standards ─────────────────────────────────────────────────────────────────
+export const getStandardsStatus = ({ token }: { token: string }) =>
+  request<StandardsStatus>("/standards/rules", { token });
+
+export const uploadRulesDocument = async (
+  file: File,
+  { token }: { token: string }
+): Promise<RulesUploadResponse> => {
+  const fd = new FormData();
+  fd.append("file", file);
+  const resp = await fetch(`${BASE}/standards/rules/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new ApiError(resp.status, body.detail || "Rules upload failed.");
+  }
+  return resp.json();
+};
+
+export const deleteRulesDocument = ({ token }: { token: string }) =>
+  request<{ status: string }>("/standards/rules", { method: "DELETE", token });
+
+export const uploadFinancialData = async (
+  file: File,
+  { token }: { token: string }
+): Promise<FinancialUploadResponse> => {
+  const fd = new FormData();
+  fd.append("file", file);
+  const resp = await fetch(`${BASE}/standards/financial/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new ApiError(resp.status, body.detail || "Financial data upload failed.");
+  }
+  return resp.json();
+};
+
+export const deleteFinancialData = ({ token }: { token: string }) =>
+  request<{ status: string }>("/standards/financial", { method: "DELETE", token });
+
+// ── Drift / Audit ─────────────────────────────────────────────────────────────
+export const getDriftMetrics = ({ token, days = 30 }: { token: string; days?: number }) =>
+  request<DriftMetrics>(`/analytics/drift?days=${days}`, { token });
+
+export const exportDriftCsv = async ({ token, days = 30 }: { token: string; days?: number }): Promise<Blob> => {
+  const resp = await fetch(`${BASE}/analytics/drift/export?days=${days}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new ApiError(resp.status, "Export failed.");
+  return resp.blob();
+};
 
 export const detectColumns = (
   file: File,

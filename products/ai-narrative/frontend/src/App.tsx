@@ -14,6 +14,7 @@ import SettingsView from "./views/SettingsView";
 import AdminView from "./views/AdminView";
 import ChatView from "./views/ChatView";
 import DocsView from "./views/DocsView";
+import StandardsView from "./views/StandardsView";
 import "./App.css";
 
 // NarrativeView and BatchView stay mounted so their form state
@@ -55,6 +56,7 @@ function AppLayout() {
           <Route path="/analytics" element={<AnalyticsView />} />
           <Route path="/settings" element={<SettingsView />} />
           <Route path="/docs" element={<DocsView />} />
+          <Route path="/standards" element={<StandardsView />} />
           <Route path="/admin" element={<AdminView />} />
           <Route path="*" element={<Navigate to="/score" replace />} />
         </Routes>

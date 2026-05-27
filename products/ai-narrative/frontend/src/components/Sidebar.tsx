@@ -7,6 +7,7 @@ import {
   MessageSquare,
   Settings,
   Shield,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
@@ -16,6 +17,7 @@ const navItems = [
   { to: "/score",      label: "Score Narrative",    icon: <Sparkles size={16} />,      section: "SCORING" },
   { to: "/batch",      label: "Batch Score",         icon: <Layers size={16} />,        section: null },
   { to: "/references", label: "Reference Library",   icon: <BookOpen size={16} />,      section: "DATA" },
+  { to: "/standards",  label: "Standards",           icon: <ShieldCheck size={16} />,   section: null },
   { to: "/chat",       label: "Knowledge Base Chat", icon: <MessageSquare size={16} />, section: null },
   { to: "/analytics",  label: "Analytics",           icon: <BarChart3 size={16} />,     section: "INSIGHTS" },
   { to: "/docs",       label: "Documentation",       icon: <BookMarked size={16} />,    section: "HELP" },

@@ -79,10 +79,28 @@ export interface Layer2Result {
   references_used: number;
 }
 
+export type DiscrepancyType = "cost_overrun" | "cost_underrun" | "schedule_slip" | "data_conflict" | "missing_reference";
+
+export interface Layer3Discrepancy {
+  type: DiscrepancyType;
+  description: string;
+  severity: "low" | "medium" | "high";
+  narrative_claim: string;
+  data_value: string;
+}
+
+export interface Layer3Result {
+  discrepancies: Layer3Discrepancy[];
+  financial_alignment_score: number;
+  aligned_items: string[];
+  financial_record_found: boolean;
+}
+
 export interface NarrativeScoreResult {
   overall_verdict: ScoringVerdict;
   layer1: Layer1Result;
   layer2: Layer2Result;
+  layer3: Layer3Result | null;
   rewritten_narrative: string;
   meta: {
     unique_id: string;
@@ -91,6 +109,10 @@ export interface NarrativeScoreResult {
     rubric_name: string;
     references_used: number;
     provider: string;
+    model_name?: string;
+    has_custom_rules?: boolean;
+    has_financial_data?: boolean;
+    prompt_hash?: string;
   };
 }
 
@@ -257,4 +279,70 @@ export interface ChatSource {
 export interface ChatResponse {
   reply: string;
   sources: ChatSource[];
+}
+
+// ── Standards ─────────────────────────────────────────────────────────────────
+export interface RulesUploadStatus {
+  active: boolean;
+  rubric_id: number | null;
+  rubric_name: string | null;
+  criteria_count: number;
+  source_filename: string | null;
+}
+
+export interface FinancialUploadStatus {
+  active: boolean;
+  filename: string | null;
+  record_count: number;
+  uploaded_at: string | null;
+}
+
+export interface StandardsStatus {
+  rules: RulesUploadStatus;
+  financial: FinancialUploadStatus;
+}
+
+export interface RulesUploadResponse {
+  status: string;
+  rubric_id: number;
+  criteria_count: number;
+  filename: string;
+  message: string;
+}
+
+export interface FinancialUploadResponse {
+  status: string;
+  filename: string;
+  record_count: number;
+  message: string;
+}
+
+// ── Drift / Audit ─────────────────────────────────────────────────────────────
+export interface DriftDataPoint {
+  date: string;
+  avg_score: number | null;
+  pass_count: number;
+  warn_count: number;
+  fail_count: number;
+  total: number;
+  primary_provider: string | null;
+}
+
+export interface ProviderChange {
+  date: string;
+  from_provider: string;
+  to_provider: string;
+}
+
+export interface DriftMetrics {
+  period_days: number;
+  total_scored: number;
+  data_points: DriftDataPoint[];
+  provider_changes: ProviderChange[];
+  score_variance: number;
+  trend_direction: "improving" | "declining" | "stable";
+  model_distribution: Record<string, number>;
+  avg_score: number;
+  custom_rules_usage_pct: number;
+  financial_check_usage_pct: number;
 }

@@ -2,17 +2,20 @@ import {
   AlertCircle,
   BookOpen,
   Bot,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Loader2,
   MessageSquare,
+  Paperclip,
   Send,
   User,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import ModelControlBar from "../components/ModelControlBar";
 import { useAppState } from "../context/AppStateContext";
-import { getDomainProfile, getReferencePeriods, sendChatMessage } from "../services/api";
+import { getDomainProfile, getReferencePeriods, ingestReference, sendChatMessage } from "../services/api";
 import type { ChatMessage, ChatSource, DomainProfile, LLMProvider } from "../types/app";
 
 const DEFAULT_SUGGESTED_QUESTIONS = [
@@ -87,8 +90,13 @@ export default function ChatView() {
   const [error, setError] = useState<string | null>(null);
   const [topK, setTopK] = useState(6);
 
+  const [uploadStatus, setUploadStatus] = useState<
+    { state: "idle" } | { state: "loading"; name: string } | { state: "done"; name: string; count: number } | { state: "error"; name: string; message: string }
+  >({ state: "idle" });
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     Promise.all([
@@ -168,6 +176,23 @@ export default function ChatView() {
   const clearChat = () => {
     setMessages([]);
     setError(null);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setUploadStatus({ state: "loading", name: file.name });
+    try {
+      const res = await ingestReference(file, { token });
+      setUploadStatus({ state: "done", name: file.name, count: res.record_count });
+    } catch (err) {
+      setUploadStatus({
+        state: "error",
+        name: file.name,
+        message: err instanceof Error ? err.message : "Upload failed.",
+      });
+    }
   };
 
   return (
@@ -370,7 +395,56 @@ export default function ChatView() {
                 <AlertCircle size={13} /> {error}
               </div>
             )}
+
+            {/* File upload status badge */}
+            {uploadStatus.state !== "idle" && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8, marginBottom: 8,
+                padding: "6px 10px", borderRadius: 6, fontSize: "0.78rem",
+                background: uploadStatus.state === "error" ? "#fef2f2" : uploadStatus.state === "done" ? "#f0fdf4" : "var(--bg-tertiary)",
+                border: `1px solid ${uploadStatus.state === "error" ? "#fca5a5" : uploadStatus.state === "done" ? "#86efac" : "var(--border-color)"}`,
+                color: uploadStatus.state === "error" ? "#b91c1c" : uploadStatus.state === "done" ? "#15803d" : "var(--text-secondary)",
+              }}>
+                {uploadStatus.state === "loading" && <Loader2 size={13} className="spin" />}
+                {uploadStatus.state === "done" && <CheckCircle2 size={13} />}
+                {uploadStatus.state === "error" && <AlertCircle size={13} />}
+                <span style={{ flex: 1 }}>
+                  {uploadStatus.state === "loading" && `Indexing ${uploadStatus.name}…`}
+                  {uploadStatus.state === "done" && `${uploadStatus.name} — ${uploadStatus.count} record${uploadStatus.count !== 1 ? "s" : ""} indexed`}
+                  {uploadStatus.state === "error" && `${uploadStatus.name}: ${uploadStatus.message}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setUploadStatus({ state: "idle" })}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", color: "inherit", opacity: 0.6 }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv,.docx,.pdf,.txt"
+                style={{ display: "none" }}
+                onChange={handleFileUpload}
+              />
+              <button
+                type="button"
+                title="Upload file to knowledge base"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadStatus.state === "loading"}
+                style={{
+                  background: "none", border: "1px solid var(--border-color)", borderRadius: 8,
+                  cursor: "pointer", padding: "0 10px", alignSelf: "stretch",
+                  color: "var(--text-muted)", display: "flex", alignItems: "center",
+                  transition: "border-color 0.15s, color 0.15s",
+                }}
+              >
+                <Paperclip size={16} />
+              </button>
               <textarea
                 ref={inputRef}
                 className="form-control"
