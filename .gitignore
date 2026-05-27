@@ -64,6 +64,7 @@ target/
 .env
 
 # Files Ignored by dev
+Knowledge Base/
 backend/data/
 backend/output/
 Sentra Knowledge Base/
