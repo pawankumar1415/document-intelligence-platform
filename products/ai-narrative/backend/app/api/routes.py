@@ -19,15 +19,19 @@ from backend.app.models.schemas import (
     ChatResponse,
     ColumnDetectionResponse,
     DomainProfile,
+    DriftMetrics,
     EmbeddingCatalog,
     EmbeddingConfigRequest,
     ExtractedRowsResponse,
     ExtractedTextResponse,
     ExcelRowRecord,
+    FinancialUploadResponse,
     IngestReferenceResponse,
     NarrativeScoreResult,
     ProviderCatalogResponse,
     RubricCreateRequest,
+    RulesUploadResponse,
+    StandardsStatus,
     RubricRecord,
     RubricSummary,
     ScoreRequest,
@@ -694,6 +698,8 @@ def sharepoint_extract_rows(
     from backend.app.services.excel_parser import (
         parse_excel_for_scoring,
         parse_csv_for_scoring,
+        parse_docx_for_scoring,
+        parse_pdf_for_scoring,
         _ID_KEYWORDS,
         _TEXT_KEYWORDS,
         _find_column,
@@ -711,15 +717,40 @@ def sharepoint_extract_rows(
         if fname.endswith(".csv"):
             records = parse_csv_for_scoring(content)
             df = pd.read_csv(io.BytesIO(content), dtype=str)
+            col_map = {str(c).strip().lower(): str(c) for c in df.columns}
+            id_col = _find_column(col_map, _ID_KEYWORDS) or str(df.columns[0])
+            txt_col = _find_column(col_map, _TEXT_KEYWORDS) or str(df.columns[-1])
+        elif fname.endswith(".docx"):
+            records = parse_docx_for_scoring(content)
+            from docx import Document as _DocxDoc  # type: ignore
+            _doc = _DocxDoc(io.BytesIO(content))
+            headers = [c.text.strip() for c in _doc.tables[0].rows[0].cells] if _doc.tables else []
+            col_map = {h.lower(): h for h in headers}
+            id_col = _find_column(col_map, _ID_KEYWORDS) or (headers[0] if headers else "id")
+            txt_col = _find_column(col_map, _TEXT_KEYWORDS) or (headers[-1] if headers else "text")
+        elif fname.endswith(".pdf"):
+            records = parse_pdf_for_scoring(content)
+            import pdfplumber  # type: ignore
+            with pdfplumber.open(io.BytesIO(content)) as _pdf:
+                headers = []
+                for _page in _pdf.pages:
+                    for _tbl in _page.extract_tables():
+                        if _tbl:
+                            headers = [str(c or "").strip() for c in _tbl[0]]
+                            break
+                    if headers:
+                        break
+            col_map = {h.lower(): h for h in headers}
+            id_col = _find_column(col_map, _ID_KEYWORDS) or (headers[0] if headers else "id")
+            txt_col = _find_column(col_map, _TEXT_KEYWORDS) or (headers[-1] if headers else "text")
         else:
             records = parse_excel_for_scoring(content, filename=request.filename)
             df = pd.read_excel(io.BytesIO(content), header=0, dtype=str)
+            col_map = {str(c).strip().lower(): str(c) for c in df.columns}
+            id_col = _find_column(col_map, _ID_KEYWORDS) or str(df.columns[0])
+            txt_col = _find_column(col_map, _TEXT_KEYWORDS) or str(df.columns[-1])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    col_map = {str(c).strip().lower(): str(c) for c in df.columns}
-    id_col = _find_column(col_map, _ID_KEYWORDS) or str(df.columns[0])
-    txt_col = _find_column(col_map, _TEXT_KEYWORDS) or str(df.columns[-1])
 
     rows = [
         ExcelRowRecord(id=r["unique_id"], narrative=r["narrative_text"])
@@ -923,4 +954,133 @@ async def detect_columns(
         narrative_candidates=narrative_candidates,
         method=method,
         ambiguous=ambiguous,
+    )
+
+
+# ── Standards: Rules Document ─────────────────────────────────────────────────
+
+@router.post("/standards/rules/upload", response_model=RulesUploadResponse)
+async def upload_rules_document(
+    file: UploadFile = File(...),
+    authorization: Annotated[str | None, Header()] = None,
+) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    raw = await file.read()
+    filename = file.filename or "rules"
+    from backend.app.config import default_llm_provider
+    from backend.app.services.rules_parser import parse_rules_document
+    try:
+        criteria = parse_rules_document(raw, filename, provider=default_llm_provider())
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not parse rules document: {exc}")
+    if not criteria:
+        raise HTTPException(status_code=422, detail="No compliance criteria found in the uploaded document.")
+
+    rubric_id = persistence.create_rubric(
+        user_id=user["id"],
+        name=f"Uploaded Rules — {filename}",
+        description=f"Auto-extracted from {filename}",
+        criteria=criteria,
+    )
+    persistence.set_active_rules_rubric(user["id"], rubric_id)
+    return RulesUploadResponse(
+        status="ok",
+        rubric_id=rubric_id,
+        criteria_count=len(criteria),
+        filename=filename,
+        message=f"{len(criteria)} criteria extracted and set as active rules.",
+    )
+
+
+@router.get("/standards/rules", response_model=StandardsStatus)
+def get_standards_status(
+    authorization: Annotated[str | None, Header()] = None,
+) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    uid = user["id"]
+
+    active_rubric_id = persistence.get_active_rules_rubric_id(uid)
+    if active_rubric_id:
+        rubric = persistence.get_rubric(active_rubric_id, uid)
+        rules_status = {
+            "active": True,
+            "rubric_id": active_rubric_id,
+            "rubric_name": rubric["name"] if rubric else None,
+            "criteria_count": len(rubric["criteria"]) if rubric else 0,
+            "source_filename": rubric["name"].replace("Uploaded Rules — ", "") if rubric else None,
+        }
+    else:
+        rules_status = {"active": False, "rubric_id": None, "rubric_name": None, "criteria_count": 0, "source_filename": None}
+
+    fin = persistence.get_financial_upload_status(uid)
+    financial_status = {
+        "active": fin is not None,
+        "filename": fin["filename"] if fin else None,
+        "record_count": fin["record_count"] if fin else 0,
+        "uploaded_at": fin["uploaded_at"] if fin else None,
+    }
+
+    return StandardsStatus(
+        rules=rules_status,
+        financial=financial_status,
+    )
+
+
+@router.delete("/standards/rules")
+def delete_rules_document(authorization: Annotated[str | None, Header()] = None) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    persistence.clear_active_rules_rubric(user["id"])
+    return {"status": "deleted"}
+
+
+# ── Standards: Financial Data ─────────────────────────────────────────────────
+
+@router.post("/standards/financial/upload", response_model=FinancialUploadResponse)
+async def upload_financial_data(
+    file: UploadFile = File(...),
+    authorization: Annotated[str | None, Header()] = None,
+) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    raw = await file.read()
+    filename = file.filename or "financial_data"
+    from backend.app.services.financial_service import ingest_financial_file
+    try:
+        result = ingest_financial_file(raw, filename, user_id=user["id"])
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return FinancialUploadResponse(**result)
+
+
+@router.delete("/standards/financial")
+def delete_financial_data(authorization: Annotated[str | None, Header()] = None) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    persistence.delete_financial_upload(user["id"])
+    return {"status": "deleted"}
+
+
+# ── Analytics: Drift Dashboard ────────────────────────────────────────────────
+
+@router.get("/analytics/drift", response_model=DriftMetrics)
+def get_drift_metrics(
+    days: int = 30,
+    authorization: Annotated[str | None, Header()] = None,
+) -> Any:
+    user = auth_service.require_authenticated_user(authorization)
+    from backend.app.services.drift_service import get_drift_metrics
+    return get_drift_metrics(user["id"], days=days)
+
+
+@router.get("/analytics/drift/export")
+def export_drift_csv(
+    days: int = 30,
+    authorization: Annotated[str | None, Header()] = None,
+) -> Any:
+    from fastapi.responses import Response
+    user = auth_service.require_authenticated_user(authorization)
+    from backend.app.services.drift_service import export_audit_csv
+    csv_data = export_audit_csv(user["id"], days=days)
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=ai_audit_{days}d.csv"},
     )

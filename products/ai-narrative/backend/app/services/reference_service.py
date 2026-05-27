@@ -14,7 +14,9 @@ from backend.app.services.embedding_service import embed_documents
 from backend.app.services.excel_parser import (
     build_content_string,
     parse_csv_for_scoring,
+    parse_docx_for_scoring,
     parse_excel_for_scoring,
+    parse_pdf_for_scoring,
 )
 from backend.app.services.vector_store import (
     delete_reference_file_vectors,
@@ -62,8 +64,13 @@ def ingest_reference_file(
         { status, filename, record_count, skipped, message }
     """
     # 1. Parse file
-    if filename.lower().endswith(".csv"):
+    fname_lower = filename.lower()
+    if fname_lower.endswith(".csv"):
         records = parse_csv_for_scoring(raw_bytes)
+    elif fname_lower.endswith(".docx"):
+        records = parse_docx_for_scoring(raw_bytes)
+    elif fname_lower.endswith(".pdf"):
+        records = parse_pdf_for_scoring(raw_bytes)
     else:
         records = parse_excel_for_scoring(raw_bytes, filename=filename)
 

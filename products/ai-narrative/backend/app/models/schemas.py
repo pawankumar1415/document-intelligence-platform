@@ -112,10 +112,26 @@ class Layer2Result(BaseModel):
     references_used: int
 
 
+class Layer3Discrepancy(BaseModel):
+    type: Literal["cost_overrun", "cost_underrun", "schedule_slip", "data_conflict", "missing_reference"]
+    description: str
+    severity: Literal["low", "medium", "high"]
+    narrative_claim: str = ""
+    data_value: str = ""
+
+
+class Layer3Result(BaseModel):
+    discrepancies: list[Layer3Discrepancy]
+    financial_alignment_score: float
+    aligned_items: list[str]
+    financial_record_found: bool = True
+
+
 class NarrativeScoreResult(BaseModel):
     overall_verdict: Literal["PASS", "PASS_WITH_WARNINGS", "FAIL", "SKIPPED", "ERROR"]
     layer1: Layer1Result
     layer2: Layer2Result
+    layer3: Optional[Layer3Result] = None
     rewritten_narrative: str = ""
     meta: dict
 
@@ -316,3 +332,71 @@ class ChatSource(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     sources: list[ChatSource]
+
+
+# ── Standards (Rules + Financial) ────────────────────────────────────────────
+
+class RulesUploadStatus(BaseModel):
+    active: bool
+    rubric_id: Optional[int] = None
+    rubric_name: Optional[str] = None
+    criteria_count: int = 0
+    source_filename: Optional[str] = None
+
+
+class FinancialUploadStatus(BaseModel):
+    active: bool
+    filename: Optional[str] = None
+    record_count: int = 0
+    uploaded_at: Optional[str] = None
+
+
+class StandardsStatus(BaseModel):
+    rules: RulesUploadStatus
+    financial: FinancialUploadStatus
+
+
+class RulesUploadResponse(BaseModel):
+    status: str
+    rubric_id: int
+    criteria_count: int
+    filename: str
+    message: str
+
+
+class FinancialUploadResponse(BaseModel):
+    status: str
+    filename: str
+    record_count: int
+    message: str
+
+
+# ── Drift / Audit ─────────────────────────────────────────────────────────────
+
+class DriftDataPoint(BaseModel):
+    date: str
+    avg_score: Optional[float] = None
+    pass_count: int
+    warn_count: int
+    fail_count: int
+    total: int
+    primary_provider: Optional[str] = None
+
+
+class ProviderChange(BaseModel):
+    date: str
+    from_provider: str
+    to_provider: str
+
+
+class DriftMetrics(BaseModel):
+    period_days: int
+    total_scored: int
+    data_points: list[DriftDataPoint]
+    provider_changes: list[ProviderChange]
+    score_variance: float
+    trend_direction: Literal["improving", "declining", "stable"]
+    model_distribution: dict
+    avg_score: float
+    custom_rules_usage_pct: float
+    financial_check_usage_pct: float

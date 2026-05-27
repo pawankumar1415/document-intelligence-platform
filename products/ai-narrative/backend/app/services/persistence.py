@@ -101,6 +101,45 @@ def init_db() -> None:
                 confidence   REAL    NOT NULL DEFAULT 0.0,
                 updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS user_settings (
+                user_id          INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                active_rubric_id INTEGER REFERENCES rubrics(id) ON DELETE SET NULL,
+                updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS financial_uploads (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                filename     TEXT    NOT NULL,
+                record_count INTEGER NOT NULL DEFAULT 0,
+                uploaded_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS financial_records (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                upload_id INTEGER NOT NULL REFERENCES financial_uploads(id) ON DELETE CASCADE,
+                user_id   INTEGER NOT NULL,
+                unique_id TEXT    NOT NULL,
+                raw_data  TEXT    NOT NULL DEFAULT '{}',
+                UNIQUE(user_id, unique_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS score_audit (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id                  INTEGER NOT NULL,
+                unique_id                TEXT    NOT NULL,
+                provider                 TEXT    NOT NULL DEFAULT '',
+                model_name               TEXT    NOT NULL DEFAULT '',
+                prompt_hash              TEXT    NOT NULL DEFAULT '',
+                compliance_score         REAL,
+                layer2_abnormality_count INTEGER,
+                layer3_discrepancy_count INTEGER,
+                verdict                  TEXT,
+                has_custom_rules         INTEGER NOT NULL DEFAULT 0,
+                has_financial_data       INTEGER NOT NULL DEFAULT 0,
+                scored_at                TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
         """)
         # Migrations for older schemas
         try:
@@ -108,7 +147,16 @@ def init_db() -> None:
                 "ALTER TABLE users ADD COLUMN onboarding_completed INTEGER NOT NULL DEFAULT 0"
             )
         except Exception:
-            pass  # column already exists
+            pass
+        # Indexes for new tables (safe to run repeatedly)
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS idx_financial_records_user_uid ON financial_records(user_id, unique_id);",
+            "CREATE INDEX IF NOT EXISTS idx_score_audit_user_date ON score_audit(user_id, scored_at);",
+        ):
+            try:
+                conn.execute(stmt)
+            except Exception:
+                pass
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -420,6 +468,153 @@ def complete_onboarding(user_id: int) -> None:
             "UPDATE users SET onboarding_completed = 1 WHERE id = ?",
             (user_id,),
         )
+
+
+# ── User Settings (custom rules rubric override) ──────────────────────────────
+
+def get_active_rules_rubric_id(user_id: int) -> int | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT active_rubric_id FROM user_settings WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    return int(row["active_rubric_id"]) if row and row["active_rubric_id"] else None
+
+
+def set_active_rules_rubric(user_id: int, rubric_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_settings (user_id, active_rubric_id, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE
+            SET active_rubric_id = excluded.active_rubric_id,
+                updated_at       = datetime('now')
+            """,
+            (user_id, rubric_id),
+        )
+
+
+def clear_active_rules_rubric(user_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE user_settings SET active_rubric_id = NULL, updated_at = datetime('now') WHERE user_id = ?",
+            (user_id,),
+        )
+
+
+# ── Financial Uploads ──────────────────────────────────────────────────────────
+
+def save_financial_upload(*, user_id: int, filename: str, records: list[dict]) -> int:
+    """Replace any existing financial upload for this user and store new records."""
+    with get_connection() as conn:
+        # Delete old upload (cascades to financial_records)
+        conn.execute("DELETE FROM financial_uploads WHERE user_id = ?", (user_id,))
+        cursor = conn.execute(
+            "INSERT INTO financial_uploads (user_id, filename, record_count) VALUES (?, ?, ?)",
+            (user_id, filename, len(records)),
+        )
+        upload_id = cursor.lastrowid
+        for rec in records:
+            conn.execute(
+                """
+                INSERT INTO financial_records (upload_id, user_id, unique_id, raw_data)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, unique_id) DO UPDATE
+                SET raw_data  = excluded.raw_data,
+                    upload_id = excluded.upload_id
+                """,
+                (upload_id, user_id, rec["unique_id"], json.dumps(rec["raw_data"])),
+            )
+    return upload_id
+
+
+def get_financial_upload_status(user_id: int) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, filename, record_count, uploaded_at FROM financial_uploads WHERE user_id = ? ORDER BY uploaded_at DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_financial_upload(user_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM financial_uploads WHERE user_id = ?", (user_id,))
+
+
+def get_financial_record(*, user_id: int, unique_id: str) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        # Exact match first
+        row = conn.execute(
+            "SELECT raw_data FROM financial_records WHERE user_id = ? AND unique_id = ?",
+            (user_id, unique_id),
+        ).fetchone()
+        if not row:
+            # Case-insensitive fallback
+            row = conn.execute(
+                "SELECT raw_data FROM financial_records WHERE user_id = ? AND lower(unique_id) = lower(?)",
+                (user_id, unique_id),
+            ).fetchone()
+    return json.loads(row["raw_data"]) if row else None
+
+
+# ── Score Audit ────────────────────────────────────────────────────────────────
+
+def save_audit_entry(
+    *,
+    user_id: int,
+    unique_id: str,
+    provider: str,
+    model_name: str,
+    prompt_hash: str,
+    compliance_score: float | None,
+    layer2_abnormality_count: int | None,
+    layer3_discrepancy_count: int | None,
+    verdict: str | None,
+    has_custom_rules: bool,
+    has_financial_data: bool,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO score_audit (
+                user_id, unique_id, provider, model_name, prompt_hash,
+                compliance_score, layer2_abnormality_count, layer3_discrepancy_count,
+                verdict, has_custom_rules, has_financial_data
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id, unique_id, provider, model_name, prompt_hash,
+                compliance_score, layer2_abnormality_count, layer3_discrepancy_count,
+                verdict, int(has_custom_rules), int(has_financial_data),
+            ),
+        )
+
+
+def get_audit_records(user_id: int, days: int = 30) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT unique_id, provider, model_name, prompt_hash,
+                   compliance_score, layer2_abnormality_count, layer3_discrepancy_count,
+                   verdict, has_custom_rules, has_financial_data, scored_at
+            FROM score_audit
+            WHERE user_id = ?
+              AND scored_at >= datetime('now', ?)
+            ORDER BY scored_at ASC
+            """,
+            (user_id, f"-{days} days"),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def purge_old_audit_records(user_id: int, days: int = 30) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM score_audit WHERE user_id = ? AND scored_at < datetime('now', ?)",
+            (user_id, f"-{days} days"),
+        )
+    return cur.rowcount
 
 
 def get_analytics_overview(user_id: int) -> dict[str, Any]:

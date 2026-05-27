@@ -1,15 +1,17 @@
 """
-narrative_scorer.py — Core two-layer narrative scoring engine.
+narrative_scorer.py — Core three-layer narrative scoring engine.
 
 Layer 1: Structural & Quality Compliance
-  LLM evaluates the narrative against rubric criteria.
-  Returns compliance_score (0-10), issues, and passed checks.
+  LLM evaluates the narrative against rubric criteria (custom uploaded rules
+  override the default rubric when present).
 
 Layer 2: Reference-Based Abnormality Detection
   Retrieves the most similar reference narratives from pgvector.
-  LLM compares the input narrative against those references to surface
-  abnormalities: missing information, unusual claims, data discrepancies,
-  structural deviations, or tone mismatches.
+  LLM surfaces abnormalities vs reference patterns.
+
+Layer 3: Financial Discrepancy Check  (only when financial data is uploaded)
+  Retrieves the financial record matching this narrative's unique_id.
+  LLM checks the narrative's monetary/schedule claims against the data.
 
 Verdict:
   PASS              — compliance_score >= 8
@@ -18,6 +20,7 @@ Verdict:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -102,6 +105,43 @@ SIMILAR REFERENCE NARRATIVES ({ref_count} found):
 {references_text}
 """
 
+# ── Layer 3 Prompts ──────────────────────────────────────────────────────────
+
+_LAYER3_SYSTEM = """\
+You are a financial accuracy auditor. Given a project narrative and its official
+financial record, identify discrepancies between what the narrative states and
+what the data shows.
+
+Discrepancy types:
+  - cost_overrun:      Narrative reports a cost higher than the financial data
+  - cost_underrun:     Narrative cost is lower than financial data (possible understatement)
+  - schedule_slip:     Narrative dates or milestones differ from financial data
+  - data_conflict:     Any numeric figure in the narrative contradicts the data
+  - missing_reference: Key financial value exists in data but absent from narrative
+
+Return ONLY valid JSON:
+{
+  "discrepancies": [
+    {
+      "type": "cost_overrun|cost_underrun|schedule_slip|data_conflict|missing_reference",
+      "description": "<specific description under 40 words>",
+      "severity": "low|medium|high",
+      "narrative_claim": "<exact quote or paraphrase from narrative>",
+      "data_value": "<value from the financial record>"
+    }
+  ],
+  "financial_alignment_score": <0-10, 10=perfect>,
+  "aligned_items": ["<financial item correctly referenced in narrative>"]
+}"""
+
+_LAYER3_USER_TEMPLATE = """\
+PROJECT NARRATIVE (ID: {unique_id}):
+\"\"\"{narrative}\"\"\"
+
+FINANCIAL REFERENCE DATA:
+{financial_data}
+"""
+
 # ── Rewrite Prompts ──────────────────────────────────────────────────────────
 
 _REWRITE_SYSTEM = """\
@@ -132,6 +172,12 @@ ORIGINAL NARRATIVE:
 Rewrite the narrative above so that every issue is resolved and every rubric \
 criterion is met. Preserve all factual content. Output only the rewritten text.
 """
+
+
+# Prompt version hash — changes automatically when system prompts are edited
+_PROMPT_HASH = hashlib.sha256(
+    (_LAYER1_SYSTEM + _LAYER2_SYSTEM + _LAYER3_SYSTEM).encode()
+).hexdigest()[:12]
 
 
 def _build_criteria_text(criteria: list[dict]) -> str:
@@ -181,13 +227,21 @@ def run_score(
     """
     provider = provider or default_llm_provider()  # type: ignore[assignment]
     # ── 1. Resolve rubric ─────────────────────────────────────────────────────
+    # Priority: explicit rubric_id > user's uploaded rules rubric > default rubric
+    has_custom_rules = False
     if rubric_id is None:
-        rubric_id = persistence.ensure_default_rubric(user_id)
+        custom_rubric_id = persistence.get_active_rules_rubric_id(user_id)
+        if custom_rubric_id:
+            rubric_id = custom_rubric_id
+            has_custom_rules = True
+        else:
+            rubric_id = persistence.ensure_default_rubric(user_id)
 
     rubric = persistence.get_rubric(rubric_id, user_id)
     if not rubric:
         rubric_id = persistence.ensure_default_rubric(user_id)
         rubric = persistence.get_rubric(rubric_id, user_id)
+        has_custom_rules = False
 
     criteria = rubric["criteria"]
     rubric_name = rubric["name"]
@@ -265,9 +319,55 @@ def run_score(
         ref_quality_score = 0.0
         patterns_followed = []
 
-    # ── 5. AI Rewrite (when issues found) ────────────────────────────────────
+    # ── 5. Layer 3 — Financial Discrepancy Check ─────────────────────────────
+    layer3_result: dict[str, Any] | None = None
+    has_financial_data = False
+    try:
+        from backend.app.services.financial_service import get_financial_record
+        fin_record = get_financial_record(user_id=user_id, unique_id=unique_id)
+        if fin_record:
+            has_financial_data = True
+            import json as _json
+            financial_data_str = _json.dumps(fin_record, indent=2)
+            layer3_user = _LAYER3_USER_TEMPLATE.format(
+                unique_id=unique_id,
+                narrative=narrative[:3000],
+                financial_data=financial_data_str[:2000],
+            )
+            layer3_raw = generate_json_object(
+                provider=provider,
+                system_prompt=_LAYER3_SYSTEM,
+                user_prompt=layer3_user,
+                temperature=0.2,
+                model=model,
+            )
+            raw_discrepancies = layer3_raw.get("discrepancies", [])
+            discrepancies = []
+            for d in raw_discrepancies:
+                if isinstance(d, dict):
+                    discrepancies.append({
+                        "type": str(d.get("type", "data_conflict")),
+                        "description": str(d.get("description", "")),
+                        "severity": str(d.get("severity", "medium")),
+                        "narrative_claim": str(d.get("narrative_claim", "")),
+                        "data_value": str(d.get("data_value", "")),
+                    })
+            layer3_result = {
+                "discrepancies": discrepancies,
+                "financial_alignment_score": float(layer3_raw.get("financial_alignment_score", 0.0)),
+                "aligned_items": [str(a) for a in layer3_raw.get("aligned_items", [])],
+                "financial_record_found": True,
+            }
+    except Exception as exc:
+        logger.warning("Layer 3 financial check failed for '%s': %s", document_name, exc)
+
+    # ── 6. AI Rewrite (when issues found) ────────────────────────────────────
     rewritten_narrative = ""
-    all_issues = layer1_issues + [a["description"] for a in abnormalities if a.get("severity") in ("high", "medium")]
+    layer3_issues = (
+        [d["description"] for d in layer3_result["discrepancies"] if d.get("severity") in ("high", "medium")]
+        if layer3_result else []
+    )
+    all_issues = layer1_issues + [a["description"] for a in abnormalities if a.get("severity") in ("high", "medium")] + layer3_issues
     if all_issues:
         try:
             issues_text = "\n".join(f"- {i}" for i in all_issues)
@@ -288,8 +388,15 @@ def run_score(
         except Exception as exc:
             logger.warning("Rewrite generation failed: %s", exc)
 
-    # ── 6. Build result ───────────────────────────────────────────────────────
+    # ── 7. Build result ───────────────────────────────────────────────────────
     verdict = _enforce_verdict(compliance_score)
+
+    # Resolve the actual model name used (best-effort)
+    try:
+        from backend.app.services.provider_catalog import resolve_chat_model
+        model_name = resolve_chat_model(provider, model)  # type: ignore[arg-type]
+    except Exception:
+        model_name = model or ""
 
     result: dict[str, Any] = {
         "overall_verdict": verdict,
@@ -304,6 +411,7 @@ def run_score(
             "patterns_followed": patterns_followed,
             "references_used": len(references),
         },
+        "layer3": layer3_result,
         "rewritten_narrative": rewritten_narrative,
         "meta": {
             "unique_id": unique_id,
@@ -312,11 +420,15 @@ def run_score(
             "rubric_name": rubric_name,
             "references_used": len(references),
             "provider": provider,
+            "model_name": model_name,
+            "has_custom_rules": has_custom_rules,
+            "has_financial_data": has_financial_data,
+            "prompt_hash": _PROMPT_HASH,
             "narrative_text": narrative,
         },
     }
 
-    # ── 7. Persist to SQLite ──────────────────────────────────────────────────
+    # ── 8. Persist to SQLite ──────────────────────────────────────────────────
     try:
         persistence.save_score_result(
             user_id=user_id,
@@ -329,7 +441,25 @@ def run_score(
     except Exception:
         logger.warning("Failed to persist score result for '%s'", document_name, exc_info=True)
 
-    # ── 8. Index into pgvector for chat searchability ────────────────────────
+    # ── 9. Write audit entry ─────────────────────────────────────────────────
+    try:
+        persistence.save_audit_entry(
+            user_id=user_id,
+            unique_id=unique_id,
+            provider=str(provider),
+            model_name=model_name,
+            prompt_hash=_PROMPT_HASH,
+            compliance_score=compliance_score,
+            layer2_abnormality_count=len(abnormalities),
+            layer3_discrepancy_count=len(layer3_result["discrepancies"]) if layer3_result else None,
+            verdict=verdict,
+            has_custom_rules=has_custom_rules,
+            has_financial_data=has_financial_data,
+        )
+    except Exception:
+        logger.warning("Failed to write audit entry for '%s'", unique_id, exc_info=True)
+
+    # ── 10. Index into pgvector for chat searchability ────────────────────────
     if vector_store_status()["configured"]:
         try:
             from backend.app.services.embedding_service import embed_query
